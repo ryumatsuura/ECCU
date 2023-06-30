@@ -17,6 +17,9 @@ This git repository stores files that train the prediction model and predict pov
 - match_mosaiks_population.R:
     - This script matches MOSAIKS feature coordinates with population count data and compute total population in each MOSAIKS feature coordinate
 
-- 3_predict_eccu_*.py:
+- 3_aggregate_mosaiks_features.py
+    - this script aggregates MOSAIKS features to national and subnational levels
+
+- 4_predict_eccu_*.py:
     - This script extracts the weights vector and predicts different outcome variables in ECCU countries
 
