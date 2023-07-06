@@ -101,5 +101,5 @@ mosaiks_feat = X.loc[indices]
 grid_feat = mosaiks_feat.set_index(gdf_grid.index)
 merged = grid_feat.join(gdf_grid[['X', 'Y']])
 
-## save the intermediate file just in case
+## save the cleaned MOSAIKS features
 merged.to_pickle(os.path.join(c.data_dir, 'int', 'feature_matrices', 'grid_features.pkl'))

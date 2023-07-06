@@ -1,4 +1,5 @@
 LICENSE
+README.md
 setup.py
 mosaiks/__init__.py
 mosaiks/config.py

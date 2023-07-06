@@ -46,15 +46,15 @@ hdi_subnat = hdi_subnat.rename(columns = {'Sub-national HDI': 'hdi', 'Health ind
 ## specify outcome variables
 tasks = ['hdi', 'health', 'income', 'ed']
 
-for y in tasks:
-    for l in ['nat', 'subnat']:
+for task in tasks:
+    for level in ['nat', 'subnat']:
         
         ## restructure the dataset for training codes - needs to be numpy arrays 
-        if l == 'nat':
-            hdi_np = np.array(hdi[y])
+        if level == 'nat':
+            hdi_np = np.array(hdi[task])
             mosaiks_feat_np = mosaiks_feat.iloc[:, 0:4000].to_numpy()
-        elif l == 'subnat':
-            hdi_np = np.array(hdi_subnat[y])
+        elif level == 'subnat':
+            hdi_np = np.array(hdi_subnat[task])
             mosaiks_feat_np = mosaiks_subnat_feat.iloc[:, 0:4000].to_numpy()
         
         ## set the bounds
@@ -91,8 +91,8 @@ for y in tasks:
         )
         
         wts = holdout_results['models'][0][0][0]
-        if l == 'nat':
-            np.savetxt(os.path.join(c.data_dir, 'int', 'weights', 'global_{}.csv'.format(y)), wts, delimiter = ',')
-        elif l == 'subnat':
-            np.savetxt(os.path.join(c.data_dir, 'int', 'weights', 'global_subnat_{}.csv'.format(y)), wts, delimiter = ',')
+        if level == 'nat':
+            np.savetxt(os.path.join(c.data_dir, 'int', 'weights', 'global_{}.csv'.format(task)), wts, delimiter = ',')
+        elif level == 'subnat':
+            np.savetxt(os.path.join(c.data_dir, 'int', 'weights', 'global_subnat_{}.csv'.format(task)), wts, delimiter = ',')
 
