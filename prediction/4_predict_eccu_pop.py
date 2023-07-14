@@ -4,15 +4,11 @@
 import io as b_io
 import geopandas as gpd
 import rasterio as rio
-import os
-import dill
-import rtree
-import zipfile
+import os, dill, rtree, zipfile, csv
 from pathlib import Path
 from mosaiks import transforms
 from mosaiks.utils.imports import *
-from shapely.geometry import Point
-from scipy.spatial import distance
+from sklearn.metrics import *
 
 ## extract bounds for density
 c_app = getattr(c, 'population')
@@ -30,6 +26,8 @@ wts_global = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'global_po
 wts_cont = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'global_continent_population.csv'), delimiter = ',')
 wts_cont_fixed = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'global_continent_fixed_population.csv'), delimiter = ',')
 wts_brb = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'brb_population.csv'), delimiter = ',')
+wts_glp = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'glp_population.csv'), delimiter = ',')
+wts_mtq = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'mtq_population.csv'), delimiter = ',')
 wts_nat = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'global_nat_population.csv'), delimiter = ',')
 wts_subnat = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'global_subnat_population.csv'), delimiter = ',')
 
@@ -108,11 +106,13 @@ eccu_subnat_pop = pd.read_csv(os.path.join(c.data_dir, 'int', 'applications', 'p
 merged = pd.merge(eccu_preds, eccu_pop)
 merged_subnat = pd.merge(eccu_subnat_preds, eccu_subnat_pop)
 
+names = ['Metrics', 'Global-scale', 'By-continent', 'By-continent fixed', 'Barbados-based', 'National-level', 'Subnational-level']
+
 ## loop over level and weights
 for df in (merged, merged_subnat):
     for x in ['global', 'cont', 'cont_fixed', 'brb', 'nat', 'subnat']:
         
-        ## plot prediction against 
+        ## plot prediction against ground truth
         plt.clf()
         tot_min = np.min([np.min(np.array(df['y_preds_{}'.format(x)])), np.min(np.array(df['Population']))])
         tot_max = np.max([np.max(np.array(df['y_preds_{}'.format(x)])), np.max(np.array(df['Population']))])
@@ -139,4 +139,40 @@ for df in (merged, merged_subnat):
             fig.savefig(os.path.join(c.out_dir, 'population', 'eccu_pop_density_{}.png'.format(x)), bbox_inches = 'tight', pad_inches = 0.1)
         elif any(df.equals(y) for y in [merged_subnat]):
             fig.savefig(os.path.join(c.out_dir, 'population', 'eccu_subnat_pop_density_{}.png'.format(x)), bbox_inches = 'tight', pad_inches = 0.1)
+    
+    ## store MSE, MAE, R2
+    rows = [
+        {'Metrics': 'MSE', 
+         'Global-scale': mean_squared_error(df['Population'], df['y_preds_global']),
+         'By-continent': mean_squared_error(df['Population'], df['y_preds_cont']),
+         'By-continent fixed': mean_squared_error(df['Population'], df['y_preds_cont_fixed']),
+         'Barbados-based': mean_squared_error(df['Population'], df['y_preds_brb']),
+         'National-level': mean_squared_error(df['Population'], df['y_preds_nat']),
+         'Subnational-level': mean_squared_error(df['Population'], df['y_preds_subnat'])},
+        {'Metrics': 'MAE', 
+         'Global-scale': mean_absolute_error(df['Population'], df['y_preds_global']),
+         'By-continent': mean_absolute_error(df['Population'], df['y_preds_cont']),
+         'By-continent fixed': mean_absolute_error(df['Population'], df['y_preds_cont_fixed']),
+         'Barbados-based': mean_absolute_error(df['Population'], df['y_preds_brb']),
+         'National-level': mean_absolute_error(df['Population'], df['y_preds_nat']),
+         'Subnational-level': mean_absolute_error(df['Population'], df['y_preds_subnat'])},
+        {'Metrics': 'R-sqaure', 
+         'Global-scale': r2_score(df['Population'], df['y_preds_global']),
+         'By-continent': r2_score(df['Population'], df['y_preds_cont']),
+         'By-continent fixed': r2_score(df['Population'], df['y_preds_cont_fixed']),
+         'Barbados-based': r2_score(df['Population'], df['y_preds_brb']),
+         'National-level': r2_score(df['Population'], df['y_preds_nat']),
+         'Subnational-level': r2_score(df['Population'], df['y_preds_subnat'])}
+    ]
+    
+    ## set file name 
+    if any(df.equals(y) for y in [merged]):
+        fn = os.path.join(c.out_dir, 'population', 'eccu_pop_density_metrics.csv')
+    elif any(df.equals(y) for y in [merged_subnat]):
+        fn = os.path.join(c.out_dir, 'population', 'eccu_subnat_pop_density_metrics.csv')
+    
+    with open(fn, 'w', encoding = 'UTF8', newline = '') as f:
+        writer = csv.DictWriter(f, fieldnames = names)
+        writer.writeheader()
+        writer.writerows(rows)
 

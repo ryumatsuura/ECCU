@@ -2,8 +2,6 @@
 ## and population data for aggregation exercises
 
 library(raster)
-library(foreach)
-library(doParallel)
 library(reticulate)
 library(data.table)
 library(here)
@@ -81,3 +79,4 @@ for (f in files) {
     fn = file.path(data_dir, 'int/population', paste0('pop_Mosaiks_features_', tolower(ISO), '.csv'))
     write.csv(x = df, file = fn)
 }
+

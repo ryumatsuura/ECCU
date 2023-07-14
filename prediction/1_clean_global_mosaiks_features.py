@@ -8,10 +8,7 @@ subset_feat = slice(None)
 import io as b_io
 import geopandas as gpd
 import rasterio as rio
-import os
-import dill
-import rtree
-import zipfile
+import os, dill, rtree, zipfile, csv
 from pathlib import Path
 from mosaiks import transforms
 from mosaiks.utils.imports import *
