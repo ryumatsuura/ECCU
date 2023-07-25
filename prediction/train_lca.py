@@ -48,7 +48,7 @@ lca_2010_settle['avg_income'] = lca_2010_settle['agg_income'] / lca_2010_settle[
 lca_2010_settle['income'] = StandardScaler().fit_transform(lca_2010_settle[['avg_income']])
 
 ## load demeaned mosaiks feat
-mosaiks_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_lca_settle_demean.csv'), index_col = 0)
+mosaiks_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_lca_settle_demeaned.csv'), index_col = 0)
 
 ## select enumeration districts that match with MOSAIKS data
 Y = lca_2010_settle.merge(mosaiks_feat[['ADM1_Code', 'Settle_Code']], left_on = ['adm1code', 'settlement'], right_on = ['ADM1_Code', 'Settle_Code'])
@@ -108,15 +108,7 @@ np.savetxt(os.path.join(c.data_dir, 'int', 'weights', 'lca_settle_income.csv'), 
 
 eccu_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_nat.csv'), index_col = 0)
 eccu_subnat_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_subnat.csv'), index_col = 0)
-
-## demean subnational mosaiks feature
-eccu_subnat_demean_feat = eccu_subnat_feat[['Country', 'NAME_1']]
-for column in eccu_feat.columns:
-    if column == 'Country':
-        continue
-    merged = eccu_subnat_feat[['Country', 'NAME_1', column]].merge(eccu_feat[['Country', column]], left_on = 'Country', right_on = 'Country', suffixes = ('_subnat', '_nat'))
-    merged[column] = merged['{}_subnat'.format(column)] - merged['{}_nat'.format(column)]
-    eccu_subnat_demean_feat = eccu_subnat_demean_feat.merge(merged[['Country', 'NAME_1', column]], left_on = ['Country', 'NAME_1'], right_on = ['Country', 'NAME_1'])
+eccu_subnat_demean_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_subnat_demeaned.csv'), index_col = 0)
 
 ## initialize dataframe
 eccu_subnat_preds = pd.DataFrame([])
@@ -188,7 +180,7 @@ lfs_2016.loc[(lfs_2016['income'] == 7500), 'income_ub'] = max_income
 lfs_2016['income_mid'] = ((lfs_2016['income'] + lfs_2016['income_ub']) / 2).astype(int)
 
 ## aggregate income to district level - use lower bound
-dist_tot_weight = lfs_2016[['District', 'wt']].groupby(['Country', 'District']).agg(sum)
+dist_tot_weight = lfs_2016[['Country', 'District', 'wt']].groupby(['Country', 'District']).agg(sum)
 agg_income_lb = lfs_2016.income.mul(lfs_2016.wt).groupby(lfs_2016['District']).sum()
 agg_income_ub = lfs_2016.income_ub.mul(lfs_2016.wt).groupby(lfs_2016['District']).sum()
 agg_income_mid = lfs_2016.income_mid.mul(lfs_2016.wt).groupby(lfs_2016['District']).sum()
@@ -221,5 +213,75 @@ for col in ['income_lb', 'income_ub', 'income_mid']:
     ax.set_ylabel('Predicted Demeaned Income')
     
     ## output the graph
-    fig.savefig(os.path.join(c.out_dir, 'income', 'lca_{}_dist.png'.format(col)), bbox_inches = 'tight', pad_inches = 0.1)
+    fig.savefig(os.path.join(c.out_dir, 'income', 'lca_{}_lca_dist.png'.format(col)), bbox_inches = 'tight', pad_inches = 0.1)
+
+#########################
+## E) descriptive stats 
+#########################
+
+## E-1. compare census and survey data and population density 
+
+## aggregate household income to settlement level and standardize it
+lca_2010_dist = lca_2010_hh.groupby(['adm1code'])['hhincome'].sum()
+lca_2010_dist = lca_2010_dist.to_frame('agg_income').reset_index().merge(lca_2010_hh.groupby(['adm1code']).size().to_frame('hh_num').reset_index(), left_on = ['adm1code'], right_on = ['adm1code'])
+lca_2010_dist['avg_income'] = lca_2010_dist['agg_income'] / lca_2010_dist['hh_num']
+lca_2010_dist['income'] = StandardScaler().fit_transform(lca_2010_dist[['avg_income']])
+
+## merge in district name
+lca_2010_dist['Country'] = 'LCA'
+lca_2010_dist = lca_2010_dist.merge(dist_key, left_on = ['adm1code'], right_index = True)
+lca_2010_dist['District'] = lca_2010_dist.NAME.str.capitalize()
+lca_2010_dist.loc[lca_2010_dist['District'] == 'Vieux-fort', 'District'] = 'Vieux Fort'
+lca_2010_dist.loc[lca_2010_dist['District'] == 'Anse-la-raye', 'District'] = 'Anse-la-Raye'
+lca_2010_dist.loc[lca_2010_dist['District'] == 'Gros-islet', 'District'] = 'Gros Islet'
+lca_2010_dist.loc[lca_2010_dist['District'] == 'Soufriere', 'District'] = 'Soufrière'
+
+## merge 2010 census with 2016 labor force survey
+merged = lca_2010_dist.merge(df, left_on = ['Country', 'District'], right_index = True)
+
+## merge with population density
+lca_pop_density = pd.read_csv(os.path.join(c.data_dir, 'int', 'applications', 'population', 'population_lca_subnat.csv'), index_col = 0)
+merged = merged.merge(lca_pop_density[['Name', 'Population']], left_on = 'District', right_on = 'Name')
+
+## plot income against population density
+for income in ['income', 'income_lb', 'income_ub', 'income_mid']:
+    plt.clf()
+    fig, ax = plt.subplots()
+    ax.scatter(np.array(merged['Population']), np.array(merged[income]))
+    xmin = np.min(np.array(merged['Population']))
+    p1, p0 = np.polyfit(np.array(merged['Population']), np.array(merged[income]), deg = 1)
+    newp0 = p0 + xmin * p1
+    ax.axline(xy1 = (xmin, newp0), slope = p1, color = 'r', lw = 2)
+    ax.set_xlabel('Log Population Density')
+    if income == 'income':
+        ax.set_ylabel('Standardized Income per Capita from Census')
+    else:
+        ax.set_ylabel('Standardized Income per Capita from LFS')
+    stat = (f"$r$ = {np.corrcoef(merged['Population'], merged[income])[0][1]:.2f}")
+    bbox = dict(boxstyle = 'round', fc = 'blanchedalmond', alpha = 0.5)
+    ax.text(0.95, 0.07, stat, fontsize = 12, bbox = bbox, transform = ax.transAxes, horizontalalignment = 'right')
+    if income == 'income':
+        fig.savefig(os.path.join(c.out_dir, 'population', 'lca_population_income_census.png'), bbox_inches = 'tight', pad_inches = 0.1)
+    else:
+        fig.savefig(os.path.join(c.out_dir, 'population', 'lca_population_{}_lfs.png'.format(income)), bbox_inches = 'tight', pad_inches = 0.1)
+
+## store mean and variances into one csv file
+rows = [
+    {'Descriptives': 'LCA Census',
+     'Population Mean': merged['Population'].mean(),
+     'Income Mean': merged['income'].mean(),
+     'Population Var.': merged['Population'].var(),
+     'Income Var.': merged['income'].var()},
+    {'Descriptives': 'LCA LFS',
+     'Population Mean': merged['Population'].mean(),
+     'Income Mean': merged['income_mid'].mean(),
+     'Population Var.': merged['Population'].var(),
+     'Income Var.': merged['income_mid'].var()}
+]
+
+fn = os.path.join(c.out_dir, 'metrics', 'lca_summary_stats.csv')
+with open(fn, 'w', encoding = 'UTF8', newline = '') as f:
+    writer = csv.DictWriter(f, fieldnames = ['Descriptives', 'Population Mean', 'Income Mean', 'Population Var.', 'Income Var.'])
+    writer.writeheader()
+    writer.writerows(rows)
 

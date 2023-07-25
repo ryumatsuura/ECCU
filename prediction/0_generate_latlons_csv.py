@@ -23,7 +23,7 @@ for i in range(10):
     lons = npz['lon'][first:last]
     latlons = np.dstack([lats, lons])
     
-    ## convert to datframe and export as csv
+    ## convert to dataframe and export as csv
     df = pd.DataFrame(latlons[0], columns = ['Latitude', 'Longitude'])
     df.to_csv(os.path.join(c.features_dir, 'latlons{}.csv'.format(i)), index = False, sep = ',')
 

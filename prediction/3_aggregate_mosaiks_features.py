@@ -6,7 +6,6 @@ import io as b_io
 import geopandas as gpd
 import rasterio as rio
 import os, dill, rtree, zipfile, csv
-from pathlib import Path
 from mosaiks import transforms
 from mosaiks.utils.imports import *
 from shapely.geometry import Point
@@ -83,6 +82,18 @@ eccu_subnat_feat = eccu_subnat_feat.reset_index(drop = True)
 ## save aggregated MOSAIKS features
 eccu_feat.to_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_nat.csv'), sep = ',')
 eccu_subnat_feat.to_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_subnat.csv'), sep = ',')
+
+## demean subnational mosaiks feature
+eccu_subnat_demean_feat = eccu_subnat_feat[['Country', 'NAME_1']]
+for column in eccu_feat.columns:
+    if column == 'Country':
+        continue
+    merged = eccu_subnat_feat[['Country', 'NAME_1', column]].merge(eccu_feat[['Country', column]], left_on = 'Country', right_on = 'Country', suffixes = ('_subnat', '_nat'))
+    merged[column] = merged['{}_subnat'.format(column)] - merged['{}_nat'.format(column)]
+    eccu_subnat_demean_feat = eccu_subnat_demean_feat.merge(merged[['Country', 'NAME_1', column]], left_on = ['Country', 'NAME_1'], right_on = ['Country', 'NAME_1'])
+
+## save demeaned MOSAIKS features
+eccu_subnat_demean_feat.to_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_subnat_demeaned.csv'), sep = ',')
 
 ## A-2. Barbados enumeration district
 
@@ -192,4 +203,4 @@ lca_settle_demean_feat.insert(1, 'Settle_Code', lca_settle_demean_feat.pop('Sett
 
 ## save aggregated MOSAIKS features
 lca_settle_feat.to_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_lca_settle.csv'), sep = ',')
-lca_settle_demean_feat.to_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_lca_settle_demean.csv'), sep = ',')
+lca_settle_demean_feat.to_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_lca_settle_demeaned.csv'), sep = ',')

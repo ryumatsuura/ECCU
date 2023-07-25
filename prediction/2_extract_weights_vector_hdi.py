@@ -10,10 +10,8 @@ import io as b_io
 import geopandas as gpd
 import rasterio as rio
 import os, dill, rtree, zipfile, csv
-from pathlib import Path
 from mosaiks import transforms
 from mosaiks.utils.imports import *
-from shapely.geometry import Point
 
 lambdas = lambdas_single = c.ml_model['global_lambdas']
 solver = solve.ridge_regression
@@ -26,7 +24,7 @@ def w_avg(df, values, weights):
     return (d * w).sum() / w.sum()
 
 ## specify outcome variables
-tasks = ['hdi', 'health', 'income', 'ed']
+tasks = ['hdi', 'gni', 'health', 'income', 'ed']
 
 #######################
 ## A) load label data
@@ -55,8 +53,8 @@ hdi = pd.read_pickle(os.path.join(c.data_dir, 'int', 'applications', 'hdi', 'HDI
 hdi_subnat = pd.read_pickle(os.path.join(c.data_dir, 'int', 'applications', 'hdi', 'HDI_indicators_and_indices_clean.p')).loc[mosaiks_subnat_feat.index]
 
 ## rename columns 
-hdi = hdi.rename(columns = {'Sub-national HDI': 'hdi', 'Health index': 'health', 'Income index': 'income', 'Educational index ': 'ed'})
-hdi_subnat = hdi_subnat.rename(columns = {'Sub-national HDI': 'hdi', 'Health index': 'health', 'Income index': 'income', 'Educational index ': 'ed'})
+hdi = hdi.rename(columns = {'Sub-national HDI': 'hdi', 'GNI per capita in thousands of US$ (2011 PPP)': 'gni', 'Health index': 'health', 'Income index': 'income', 'Educational index ': 'ed'})
+hdi_subnat = hdi_subnat.rename(columns = {'Sub-national HDI': 'hdi', 'GNI per capita in thousands of US$ (2011 PPP)': 'gni', 'Health index': 'health', 'Income index': 'income', 'Educational index ': 'ed'})
 
 for task in tasks:
     avg = hdi_subnat.groupby('ISO_Code').apply(w_avg, task, 'Population size in millions')

@@ -29,7 +29,7 @@ bslc_hhid = pd.read_stata(os.path.join(c.data_dir, 'raw', 'surveys', 'Barbados-S
 bslc_income = pd.read_stata(os.path.join(c.data_dir, 'raw', 'surveys', 'Barbados-Survey-of-Living-Conditions-2016', 'Data BSLC2016', 'RT002_Public.dta'))
 
 ## keep variables of interest
-bslc_hhid = bslc_hhid[['hhid', 'psu']]
+bslc_hhid = bslc_hhid[['hhid', 'par', 'psu']]
 bslc_income = bslc_income[['hhid', 'id', 'weight', 'q10_02a', 'q10_04a', 'q10_06', 'q10_07', 'q10_08', 'q10_09', 'q10_10', 'q10_11', 'q10_12', 'q10_13', 'q10_14', 'q10_15',
                            'q10_16', 'q10_17', 'q10_18', 'q10_19', 'q10_20', 'q10_21']]
 
@@ -38,15 +38,15 @@ bslc_income.loc[:, 'income_last_month'] = bslc_income[['q10_02a', 'q10_04a', 'q1
 bslc_income.loc[:, 'income_last_year']  = bslc_income[['q10_16', 'q10_17', 'q10_18', 'q10_19', 'q10_20', 'q10_21']].sum(axis = 1)
 
 ## compute annual income - since income will be standardized it doesn't matter if we choose annual vs monthly
-bslc_income.loc[:, 'income']  = (bslc_income['income_last_month'] * 12) + bslc_income['income_last_year']
-##bslc_income.loc[:, 'income'] = bslc_income[['q10_02a', 'q10_04a']].sum(axis = 1)
+##bslc_income.loc[:, 'income']  = (bslc_income['income_last_month'] * 12) + bslc_income['income_last_year']
+bslc_income.loc[:, 'income'] = bslc_income[['q10_02a', 'q10_04a']].sum(axis = 1)
 
 ## aggregate income and weight to household level
 bslc_hhincome = bslc_income[['hhid', 'income']].groupby('hhid').agg(sum)
 bslc_hhweight = bslc_income[['hhid', 'weight']].groupby('hhid').agg(sum)
 
 ## merge in household identifier and weights
-bslc_hh = bslc_hhincome.merge(bslc_hhweight, left_on = 'hhid', right_on = 'hhid').merge(bslc_hhid, left_on = 'hhid', right_on = 'hhid')
+bslc_hh = bslc_hhincome.merge(bslc_hhweight, left_on = 'hhid', right_on = 'hhid').merge(bslc_hhid[['hhid', 'psu']], left_on = 'hhid', right_on = 'hhid')
 
 ## aggregate income to enumeration districts, average income, and standardize it
 psu_tot_weight = bslc_hh[['psu', 'weight']].groupby('psu').agg(sum)
@@ -55,13 +55,7 @@ df = psu_tot_weight.merge(agg_income.rename('agg_income'), left_index = True, ri
 df['avg_income']  = df['agg_income'] / df['weight']
 df['income'] = StandardScaler().fit_transform(df[['avg_income']])
 
-##brb_pop_density = pd.read_csv(os.path.join(c.data_dir, 'int', 'applications', 'population', 'population_brb_ed.csv'), index_col = 0)
-##df = df.merge(brb_pop_density[['psu', 'Population']], left_index = True, right_on = 'psu')
-##df['income'].corr(df['Population'])
-##df['agg_income'].corr(df['Population'])
-
 ## load MOSAIKS data
-##mosaiks_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_brb_ed.csv'), sep = ',', index_col = 0)
 mosaiks_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_brb_ed_demeaned.csv'), sep = ',', index_col = 0)
 
 ## select enumeration districts that match with MOSAIKS data
@@ -117,11 +111,13 @@ np.savetxt(os.path.join(c.data_dir, 'int', 'weights', 'brb_ed_income.csv'), wts,
 ## C) predict
 ###############
 
-# wts = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'lca_settle_income.csv'), delimiter = ',')
+# wts = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'brb_ed_income.csv'), delimiter = ',')
 
 ## C-1. parish level for ECCU countries
 
+eccu_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_nat.csv'), index_col = 0)
 eccu_subnat_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_subnat.csv'), index_col = 0)
+eccu_subnat_demean_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_subnat_demeaned.csv'), index_col = 0)
 
 ## initialize dataframe
 eccu_subnat_preds = pd.DataFrame([])
@@ -131,7 +127,7 @@ eccu_subnat_preds['Country'] = eccu_subnat_feat['Country'].values.tolist()
 eccu_subnat_preds['Name'] = eccu_subnat_feat[['NAME_1']]
 
 ## predict 
-ypreds = np.dot(eccu_subnat_feat.iloc[:, 2:4002], wts)
+ypreds = np.dot(eccu_subnat_demean_feat.iloc[:, 2:4002], wts)
     
 ## bound the prediction
 ypreds[ypreds < mins] = mins
@@ -140,91 +136,84 @@ ypreds[ypreds > maxs] = maxs
 ## store predicted values
 eccu_subnat_preds['income_preds'] = ypreds.tolist()
 
-## C-2. district level for St Lucia
-
-lca_settle_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_lca_settle.csv'), index_col = 0)
-
-## initialize dataframe
-lca_settle_preds = pd.DataFrame([])
-
-## add country name and subnational unit name
-lca_settle_preds['ADM1_Code'] = lca_settle_feat['ADM1_Code'].values.tolist()
-lca_settle_preds['Settle_Code'] = lca_settle_feat[['Settle_Code']]
-
-## predict 
-ypreds = np.dot(lca_settle_feat.iloc[:, 2:4002], wts)
-    
-## bound the prediction
-ypreds[ypreds < mins] = mins
-ypreds[ypreds > maxs] = maxs
-
-## store predicted values
-lca_settle_preds['income_preds'] = ypreds.tolist()
-
 ##############################
 ## D) clean LCA labor survey
 ##############################
 
 ## D-1. clean ground truth data
 
-## district key for census
-dist_key = {'LC04': 'Anse-la-Raye', 'LC05': 'Canaries', 'LC06': 'Soufrière', 'LC07': 'Choiseul', 'LC08': 'Laborie', 'LC09': 'Vieux Fort', 
-            'LC10': 'Micoud', 'LC11': 'Dennery', 'LC12': 'Gros Islet', 'LC13': 'Castries'}
-
 ## load LCA data
 lca_2010 = pd.read_stata(os.path.join(c.data_dir, 'raw', 'surveys', 'Saint Lucia Census and Labor Survey', '2010 Census Dataset', 'person_house_merged.dta'), convert_categoricals = False)
 
-## keep variables of interest
-lca_2010 = lca_2010[['district', 'ed', 'hh', 'p34_per_num', 'hhincome', 'settlement']]
+## store max income from 2010 LCA data
+max_income = np.max(lca_2010.hhincome)
+
+## district key for census
+dist_key = pd.DataFrame.from_dict({'LC04': 'ANSE-LA-RAYE', 'LC05': 'CANARIES', 'LC06': 'SOUFRIERE', 'LC07': 'CHOISEUL', 'LC08': 'LABORIE', 'LC09': 'VIEUX-FORT', 
+                                   'LC10': 'MICOUD', 'LC11': 'DENNERY', 'LC12': 'GROS-ISLET', 'LC13': 'CASTRIES'}, orient = 'index', columns = ['NAME'])
+
+## load LCA data
+lfs_2016 = pd.read_stata(os.path.join(c.data_dir, 'raw', 'surveys', 'Saint Lucia Census and Labor Survey', 'LFS', 'LCA_2016.dta'))
+lfs_2016 = lfs_2016[['district', 'ed', 'wt', 'income']]
+
+## recreate district variable
+lfs_2016['NAME'] = lfs_2016.district.to_list()
 
 ## I can separate ANSE-LA-RAYE and CANARIES districts based on ed id's
 ## ed = 5200-6205 in Anse La Raye district / 6301-6504 in Canaries district
+lfs_2016.loc[(lfs_2016['ed'] >= 5200) & (lfs_2016['ed'] <= 6205), 'NAME'] = 'ANSE-LA-RAYE'
+lfs_2016.loc[(lfs_2016['ed'] >= 6301) & (lfs_2016['ed'] <= 6504), 'NAME'] = 'CANARIES'
+lfs_2016.loc[(lfs_2016['district'] == 'CASTRIES CITY') | (lfs_2016['district'] == 'CASTRIES RURAL'), 'NAME'] = 'CASTRIES'
+lfs_2016 = lfs_2016.drop(columns = ['district'])
 
-## drop duplicates on district-enumeration block-household-person identifiers
-lca_2010 = lca_2010.drop_duplicates(subset = ['district', 'ed', 'hh', 'p34_per_num'], keep = False)
+## recreate country and district columns
+lfs_2016['Country'] = 'LCA'
+lfs_2016['District'] = lfs_2016.NAME.str.capitalize()
+lfs_2016.loc[lfs_2016['District'] == 'Vieux-fort', 'District'] = 'Vieux Fort'
+lfs_2016.loc[lfs_2016['District'] == 'Anse-la-raye', 'District'] = 'Anse-la-Raye'
+lfs_2016.loc[lfs_2016['District'] == 'Gros-islet', 'District'] = 'Gros Islet'
+lfs_2016.loc[lfs_2016['District'] == 'Soufriere', 'District'] = 'Soufrière'
 
-## fill in missing household income and settlement code - only one non-missing value for each household
-lca_2010['hhincome'] = lca_2010['hhincome'].fillna(lca_2010.groupby(['district', 'ed', 'hh'])['hhincome'].transform('mean')).astype(int)
-lca_2010['settlement'] = lca_2010['settlement'].fillna(lca_2010.groupby(['district', 'ed', 'hh'])['settlement'].transform('mean')).astype(int)
+## create income variable for the upper bound
+lfs_2016['income_ub'] = 0
+lfs_2016.loc[(lfs_2016['income'] == 0), 'income_ub'] = 100
+lfs_2016.loc[(lfs_2016['income'] == 100), 'income_ub'] = 300
+lfs_2016.loc[(lfs_2016['income'] == 300), 'income_ub'] = 600
+lfs_2016.loc[(lfs_2016['income'] == 600), 'income_ub'] = 1000
+lfs_2016.loc[(lfs_2016['income'] == 1000), 'income_ub'] = 1600
+lfs_2016.loc[(lfs_2016['income'] == 1600), 'income_ub'] = 3000
+lfs_2016.loc[(lfs_2016['income'] == 3000), 'income_ub'] = 5000
+lfs_2016.loc[(lfs_2016['income'] == 5000), 'income_ub'] = 7500
+lfs_2016.loc[(lfs_2016['income'] == 7500), 'income_ub'] = max_income
 
-## collapse down to household level
-lca_2010_hh = lca_2010.drop(columns = ['p34_per_num']).drop_duplicates()
+## create income variable for the midpoint
+lfs_2016['income_mid'] = ((lfs_2016['income'] + lfs_2016['income_ub']) / 2).astype(int)
 
-## create admin code - aggregate castries to district 13
-lca_2010_hh['adm2code'] = lca_2010_hh['settlement'].apply(lambda x: '{0:0>9}'.format(x))
-lca_2010_hh['adm1code'] = 'LC' + lca_2010_hh['adm2code'].str[0:2]
-lca_2010_hh.loc[lca_2010_hh['adm1code'].isin(['LC01', 'LC02', 'LC03']), ['adm1code']] = 'LC13'
-
-## aggregate household income to settlement level and standardize it
-lca_2010_settle = lca_2010_hh.groupby(['adm1code', 'settlement'])['hhincome'].sum()
-lca_2010_settle = lca_2010_settle.to_frame('agg_income').reset_index().merge(lca_2010_hh.groupby(['adm1code', 'settlement']).size().to_frame('hh_num').reset_index(), left_on = ['adm1code', 'settlement'], right_on = ['adm1code', 'settlement'])
-lca_2010_settle['avg_income'] = lca_2010_settle['agg_income'] / lca_2010_settle['hh_num']
-lca_2010_settle['income'] = StandardScaler().fit_transform(lca_2010_settle[['avg_income']])
-
-## match predicted value and ground-truth at settlement level
-merged_settle = lca_settle_preds.merge(lca_2010_settle[['adm1code', 'settlement', 'income']], left_on = ['ADM1_Code', 'Settle_Code'], right_on = ['adm1code', 'settlement'])
-
-## aggregate household income to district level and standardize it
-lca_2010_dist = lca_2010_hh.groupby(['adm1code'])['hhincome'].sum()
-lca_2010_dist = lca_2010_dist.to_frame('agg_income').reset_index().merge(lca_2010_hh.groupby(['adm1code']).size().to_frame('hh_num').reset_index(), left_on = ['adm1code'], right_on = ['adm1code'])
-lca_2010_dist['avg_income'] = lca_2010_dist['agg_income'] / lca_2010_dist['hh_num']
-lca_2010_dist['income'] = StandardScaler().fit_transform(lca_2010_dist[['avg_income']])
-lca_2010_dist = lca_2010_dist.merge(pd.DataFrame.from_dict(dist_key, orient = 'index', columns = ['Name']), left_on = 'adm1code', right_index = True)
-lca_2010_dist['Country'] = 'LCA'
+## aggregate income to district level
+dist_tot_weight = lfs_2016[['Country', 'District', 'wt']].groupby(['Country', 'District']).agg(sum)
+agg_income_lb = lfs_2016.income.mul(lfs_2016.wt).groupby(lfs_2016['District']).sum()
+agg_income_ub = lfs_2016.income_ub.mul(lfs_2016.wt).groupby(lfs_2016['District']).sum()
+agg_income_mid = lfs_2016.income_mid.mul(lfs_2016.wt).groupby(lfs_2016['District']).sum()
+df = dist_tot_weight.merge(agg_income_lb.rename('agg_income_lb'), left_index = True, right_index = True)
+df = df.merge(agg_income_ub.rename('agg_income_ub'), left_index = True, right_index = True)
+df = df.merge(agg_income_mid.rename('agg_income_mid'), left_index = True, right_index = True)
+for income in ['lb', 'ub', 'mid']:
+    df['avg_income_{}'.format(income)]  = df['agg_income_{}'.format(income)] / df['wt']
+    df['income_{}'.format(income)] = StandardScaler().fit_transform(df[['avg_income_{}'.format(income)]])
 
 ## match predicted value and ground-truth at district level
-merged_dist = eccu_subnat_preds.merge(lca_2010_dist[['Country', 'Name', 'income']], left_on = ['Country', 'Name'], right_on = ['Country', 'Name'])
+merged_dist = eccu_subnat_preds.merge(df[['income_lb', 'income_ub', 'income_mid']], left_on = ['Country', 'Name'], right_index = True)
 
 ## D-2. comapre ground-truth against predicted values
 
-for df in (merged_settle, merged_dist):
+for col in ['income_lb', 'income_ub', 'income_mid']:
     
     ## plot prediction against ground truth
     plt.clf()
-    tot_min = np.min([np.min(np.array(df['income_preds'])), np.min(np.array(df['income']))])
-    tot_max = np.max([np.max(np.array(df['income_preds'])), np.max(np.array(df['income']))])
+    tot_min = np.min([np.min(np.array(merged_dist['income_preds'])), np.min(np.array(merged_dist[col]))])
+    tot_max = np.max([np.max(np.array(merged_dist['income_preds'])), np.max(np.array(merged_dist[col]))])
     fig, ax = plt.subplots()
-    ax.scatter(np.array(df['income']), np.array(df['income_preds']))
+    ax.scatter(np.array(merged_dist[col]), np.array(merged_dist['income_preds']))
     
     ## add 45 degree line and country names
     plt.plot([tot_min, tot_max], [tot_min, tot_max], color = 'black', linewidth = 2)
@@ -234,8 +223,54 @@ for df in (merged_settle, merged_dist):
     ax.set_ylabel('Predicted Demeaned Income')
     
     ## output the graph
-    if any(df.equals(y) for y in [merged_settle]):
-        fig.savefig(os.path.join(c.out_dir, 'income', 'lca_income_settle.png'), bbox_inches = 'tight', pad_inches = 0.1)
-    elif any(df.equals(y) for y in [merged_dist]):
-        fig.savefig(os.path.join(c.out_dir, 'income', 'lca_income_dist.png'), bbox_inches = 'tight', pad_inches = 0.1)
+    fig.savefig(os.path.join(c.out_dir, 'income', 'brb_{}_lca_dist.png'.format(col)), bbox_inches = 'tight', pad_inches = 0.1)
+
+#########################
+## E) descriptive stats 
+#########################
+
+## E-1. plot income against population density
+
+## aggregate income to enumeration districts, average income, and standardize it
+bslc_hh = bslc_hhincome.merge(bslc_hhweight, left_on = 'hhid', right_on = 'hhid').merge(bslc_hhid[['hhid', 'par']], left_on = 'hhid', right_on = 'hhid')
+par_tot_weight = bslc_hh[['par', 'weight']].groupby('par').agg(sum)
+agg_income = bslc_hh.income.mul(bslc_hh.weight).groupby(bslc_hh['par']).sum()
+df = par_tot_weight.merge(agg_income.rename('agg_income'), left_index = True, right_index = True)
+df['avg_income']  = df['agg_income'] / df['weight']
+df['income'] = StandardScaler().fit_transform(df[['avg_income']])
+
+## merge with population density
+brb_pop_density = pd.read_csv(os.path.join(c.data_dir, 'int', 'applications', 'population', 'population_brb_subnat.csv'), index_col = 0)
+brb_pop_density = brb_pop_density.replace({'Name': 'Saint'}, {'Name': 'St.'}, regex = True)
+df = df.merge(brb_pop_density[['Name', 'Population']], left_index = True, right_on = 'Name')
+
+## plot income against population density
+plt.clf()
+fig, ax = plt.subplots()
+ax.scatter(np.array(df['Population']), np.array(df['income']))
+xmin = np.min(np.array(df['Population']))
+p1, p0 = np.polyfit(np.array(df['Population']), np.array(df['income']), deg = 1)
+newp0 = p0 + xmin * p1
+ax.axline(xy1 = (xmin, newp0), slope = p1, color = 'r', lw = 2)
+ax.set_xlabel('Log Population Density')
+ax.set_ylabel('Standardized Income per Capita')
+stat = (f"$r$ = {np.corrcoef(df['Population'], df['income'])[0][1]:.2f}")
+bbox = dict(boxstyle = 'round', fc = 'blanchedalmond', alpha = 0.5)
+ax.text(0.95, 0.07, stat, fontsize = 12, bbox = bbox, transform = ax.transAxes, horizontalalignment = 'right')
+fig.savefig(os.path.join(c.out_dir, 'population', 'brb_population_income.png'), bbox_inches = 'tight', pad_inches = 0.1)
+
+## store mean and variances into one csv file
+rows = [
+    {'Descriptives': 'BRB LCS',
+     'Population Mean': df['Population'].mean(),
+     'Income Mean': df['income'].mean(),
+     'Population Var.': df['Population'].var(),
+     'Income Var.': df['income'].var()}
+]
+
+fn = os.path.join(c.out_dir, 'metrics', 'brb_summary_stats.csv')
+with open(fn, 'w', encoding = 'UTF8', newline = '') as f:
+    writer = csv.DictWriter(f, fieldnames = ['Descriptives', 'Population Mean', 'Income Mean', 'Population Var.', 'Income Var.'])
+    writer.writeheader()
+    writer.writerows(rows)
 

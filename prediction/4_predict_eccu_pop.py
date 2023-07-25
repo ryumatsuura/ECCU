@@ -5,7 +5,6 @@ import io as b_io
 import geopandas as gpd
 import rasterio as rio
 import os, dill, rtree, zipfile, csv
-from pathlib import Path
 from mosaiks import transforms
 from mosaiks.utils.imports import *
 from sklearn.metrics import *
@@ -28,6 +27,7 @@ wts_cont_fixed = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'globa
 wts_brb = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'brb_population.csv'), delimiter = ',')
 wts_glp = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'glp_population.csv'), delimiter = ',')
 wts_mtq = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'mtq_population.csv'), delimiter = ',')
+wts_nbr = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'nbr_population.csv'), delimiter = ',')
 wts_nat = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'global_nat_population.csv'), delimiter = ',')
 wts_subnat = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'global_subnat_population.csv'), delimiter = ',')
 
@@ -47,13 +47,13 @@ for df in (eccu_feat, eccu_subnat_feat):
 
 ## loop over national level and subnational level predictions and then weights
 for df in (eccu_feat, eccu_subnat_feat):
-    for w in (wts_global, wts_cont, wts_cont_fixed, wts_brb, wts_nat, wts_subnat):
+    for w in (wts_global, wts_cont, wts_cont_fixed, wts_brb, wts_glp, wts_mtq, wts_nbr, wts_nat, wts_subnat):
         
         ## store weights name
         name = next(x for x in globals() if globals()[x] is w)
         
         ## predict using global-scale weights vector
-        if np.array_equiv(w, wts_global) or np.array_equiv(w, wts_brb) or np.array_equiv(w, wts_nat) or np.array_equiv(w, wts_subnat):
+        if np.array_equiv(w, wts_global) or np.array_equiv(w, wts_brb) or np.array_equiv(w, wts_glp) or np.array_equiv(w, wts_mtq) or np.array_equiv(w, wts_nbr) or np.array_equiv(w, wts_nat) or np.array_equiv(w, wts_subnat):
             
             if any(df.equals(y) for y in [eccu_feat]):
                 ypreds = np.dot(df.iloc[:, 1:4001], w)
@@ -99,18 +99,16 @@ for df in (eccu_feat, eccu_subnat_feat):
 ## B) clean ground truth data 
 ###############################
 
-eccu_pop = pd.read_csv(os.path.join(c.data_dir, 'int', 'applications', 'population', 'population_density_eccu.csv'), index_col = 0)
-eccu_subnat_pop = pd.read_csv(os.path.join(c.data_dir, 'int', 'applications', 'population', 'population_density_eccu_subnat.csv'), index_col = 0)
+eccu_pop = pd.read_csv(os.path.join(c.data_dir, 'int', 'applications', 'population', 'population_eccu.csv'), index_col = 0)
+eccu_subnat_pop = pd.read_csv(os.path.join(c.data_dir, 'int', 'applications', 'population', 'population_eccu_subnat.csv'), index_col = 0)
 
 ## merge two dataframes
 merged = pd.merge(eccu_preds, eccu_pop)
 merged_subnat = pd.merge(eccu_subnat_preds, eccu_subnat_pop)
 
-names = ['Metrics', 'Global-scale', 'By-continent', 'By-continent fixed', 'Barbados-based', 'National-level', 'Subnational-level']
-
 ## loop over level and weights
 for df in (merged, merged_subnat):
-    for x in ['global', 'cont', 'cont_fixed', 'brb', 'nat', 'subnat']:
+    for x in ['global', 'cont', 'cont_fixed', 'brb', 'glp', 'mtq', 'nbr', 'nat', 'subnat']:
         
         ## plot prediction against ground truth
         plt.clf()
@@ -136,43 +134,104 @@ for df in (merged, merged_subnat):
         
         ## output the graph
         if any(df.equals(y) for y in [merged]):
-            fig.savefig(os.path.join(c.out_dir, 'population', 'eccu_pop_density_{}.png'.format(x)), bbox_inches = 'tight', pad_inches = 0.1)
+            fig.savefig(os.path.join(c.out_dir, 'population', 'eccu_population_{}.png'.format(x)), bbox_inches = 'tight', pad_inches = 0.1)
         elif any(df.equals(y) for y in [merged_subnat]):
-            fig.savefig(os.path.join(c.out_dir, 'population', 'eccu_subnat_pop_density_{}.png'.format(x)), bbox_inches = 'tight', pad_inches = 0.1)
+            fig.savefig(os.path.join(c.out_dir, 'population', 'eccu_subnat_population_{}.png'.format(x)), bbox_inches = 'tight', pad_inches = 0.1)
     
     ## store MSE, MAE, R2
     rows = [
-        {'Metrics': 'MSE', 
-         'Global-scale': mean_squared_error(df['Population'], df['y_preds_global']),
-         'By-continent': mean_squared_error(df['Population'], df['y_preds_cont']),
-         'By-continent fixed': mean_squared_error(df['Population'], df['y_preds_cont_fixed']),
-         'Barbados-based': mean_squared_error(df['Population'], df['y_preds_brb']),
-         'National-level': mean_squared_error(df['Population'], df['y_preds_nat']),
-         'Subnational-level': mean_squared_error(df['Population'], df['y_preds_subnat'])},
-        {'Metrics': 'MAE', 
-         'Global-scale': mean_absolute_error(df['Population'], df['y_preds_global']),
-         'By-continent': mean_absolute_error(df['Population'], df['y_preds_cont']),
-         'By-continent fixed': mean_absolute_error(df['Population'], df['y_preds_cont_fixed']),
-         'Barbados-based': mean_absolute_error(df['Population'], df['y_preds_brb']),
-         'National-level': mean_absolute_error(df['Population'], df['y_preds_nat']),
-         'Subnational-level': mean_absolute_error(df['Population'], df['y_preds_subnat'])},
-        {'Metrics': 'R-sqaure', 
-         'Global-scale': r2_score(df['Population'], df['y_preds_global']),
-         'By-continent': r2_score(df['Population'], df['y_preds_cont']),
-         'By-continent fixed': r2_score(df['Population'], df['y_preds_cont_fixed']),
-         'Barbados-based': r2_score(df['Population'], df['y_preds_brb']),
-         'National-level': r2_score(df['Population'], df['y_preds_nat']),
-         'Subnational-level': r2_score(df['Population'], df['y_preds_subnat'])}
+        {'Metrics': 'Global-scale',
+         'MSE': mean_squared_error(df['Population'], df['y_preds_global']),
+         'MAE': mean_absolute_error(df['Population'], df['y_preds_global']),
+         'R-square': r2_score(df['Population'], df['y_preds_global'])},
+        {'Metrics': 'By-continent',
+         'MSE': mean_squared_error(df['Population'], df['y_preds_cont']),
+         'MAE': mean_absolute_error(df['Population'], df['y_preds_cont']),
+         'R-square': r2_score(df['Population'], df['y_preds_cont'])},
+        {'Metrics': 'By-continent fixed',
+         'MSE': mean_squared_error(df['Population'], df['y_preds_cont_fixed']),
+         'MAE': mean_absolute_error(df['Population'], df['y_preds_cont_fixed']),
+         'R-square': r2_score(df['Population'], df['y_preds_cont_fixed'])},
+        {'Metrics': 'Barbados-based',
+         'MSE': mean_squared_error(df['Population'], df['y_preds_brb']),
+         'MAE': mean_absolute_error(df['Population'], df['y_preds_brb']),
+         'R-square': r2_score(df['Population'], df['y_preds_brb'])},
+        {'Metrics': 'Guadeloupe-based',
+         'MSE': mean_squared_error(df['Population'], df['y_preds_glp']),
+         'MAE': mean_absolute_error(df['Population'], df['y_preds_glp']),
+         'R-square': r2_score(df['Population'], df['y_preds_glp'])},
+        {'Metrics': 'Martinique-based',
+         'MSE': mean_squared_error(df['Population'], df['y_preds_mtq']),
+         'MAE': mean_absolute_error(df['Population'], df['y_preds_mtq']),
+         'R-square': r2_score(df['Population'], df['y_preds_mtq'])},
+        {'Metrics': 'Neighbors-based',
+         'MSE': mean_squared_error(df['Population'], df['y_preds_nbr']),
+         'MAE': mean_absolute_error(df['Population'], df['y_preds_nbr']),
+         'R-square': r2_score(df['Population'], df['y_preds_nbr'])},
+        {'Metrics': 'National-level',
+         'MSE': mean_squared_error(df['Population'], df['y_preds_nat']),
+         'MAE': mean_absolute_error(df['Population'], df['y_preds_nat']),
+         'R-square': r2_score(df['Population'], df['y_preds_nat'])},
+        {'Metrics': 'Subnational-level',
+         'MSE': mean_squared_error(df['Population'], df['y_preds_subnat']),
+         'MAE': mean_absolute_error(df['Population'], df['y_preds_subnat']),
+         'R-square': r2_score(df['Population'], df['y_preds_subnat'])}        
     ]
     
     ## set file name 
     if any(df.equals(y) for y in [merged]):
-        fn = os.path.join(c.out_dir, 'population', 'eccu_pop_density_metrics.csv')
+        fn = os.path.join(c.out_dir, 'metrics', 'eccu_population_metrics.csv')
     elif any(df.equals(y) for y in [merged_subnat]):
-        fn = os.path.join(c.out_dir, 'population', 'eccu_subnat_pop_density_metrics.csv')
+        fn = os.path.join(c.out_dir, 'metrics', 'eccu_subnat_population_metrics.csv')
     
     with open(fn, 'w', encoding = 'UTF8', newline = '') as f:
-        writer = csv.DictWriter(f, fieldnames = names)
+        writer = csv.DictWriter(f, fieldnames = ['Metrics', 'MSE', 'MAE', 'R-square'])
         writer.writeheader()
         writer.writerows(rows)
+    
+    ## store mean and variances into one csv file
+    rows = [
+        {'Descriptives': 'Ground-truth',
+         'Mean': df['Population'].mean(),
+         'Variance': df['Population'].var()},
+        {'Descriptives': 'Global-scale',
+         'Mean': df['y_preds_global'].mean(),
+         'Variance': df['y_preds_global'].var()},
+        {'Descriptives': 'By-continent',
+         'Mean': df['y_preds_cont'].mean(),
+         'Variance': df['y_preds_cont'].var()},
+        {'Descriptives': 'By-continent fixed',
+         'Mean': df['y_preds_cont_fixed'].mean(),
+         'Variance': df['y_preds_cont_fixed'].var()},
+        {'Descriptives': 'Barbados-based',
+         'Mean': df['y_preds_brb'].mean(),
+         'Variance': df['y_preds_brb'].var()},
+        {'Descriptives': 'Guadeloupe-based',
+         'Mean': df['y_preds_glp'].mean(),
+         'Variance': df['y_preds_glp'].var()},
+        {'Descriptives': 'Martinique-based',
+         'Mean': df['y_preds_mtq'].mean(),
+         'Variance': df['y_preds_mtq'].var()},
+        {'Descriptives': 'Neighbors-based',
+         'Mean': df['y_preds_nbr'].mean(),
+         'Variance': df['y_preds_nbr'].var()},
+        {'Descriptives': 'National-level',
+         'Mean': df['y_preds_nat'].mean(),
+         'Variance': df['y_preds_nat'].var()},
+        {'Descriptives': 'Subnational-level',
+         'Mean': df['y_preds_subnat'].mean(),
+         'Variance': df['y_preds_subnat'].var()}
+    ]
+    
+    ## set file name 
+    if any(df.equals(y) for y in [merged]):
+        fn = os.path.join(c.out_dir, 'metrics', 'eccu_population_summary_stats.csv')
+    elif any(df.equals(y) for y in [merged_subnat]):
+        fn = os.path.join(c.out_dir, 'metrics', 'eccu_subnat_population_summary_stats.csv')
+    
+    with open(fn, 'w', encoding = 'UTF8', newline = '') as f:
+        writer = csv.DictWriter(f, fieldnames = ['Descriptives', 'Mean', 'Variance'])
+        writer.writeheader()
+        writer.writerows(rows)
+
 

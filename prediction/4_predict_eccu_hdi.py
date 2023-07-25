@@ -5,7 +5,6 @@ import io as b_io
 import geopandas as gpd
 import rasterio as rio
 import os, dill, rtree, zipfile, csv
-from pathlib import Path
 from mosaiks import transforms
 from mosaiks.utils.imports import *
 from sklearn.metrics import *
@@ -17,15 +16,15 @@ def w_avg(df, values, weights):
     return (d * w).sum() / w.sum()
 
 ## specify outcome variables
-tasks = ['hdi', 'health', 'income', 'ed']
+tasks = ['hdi', 'gni', 'health', 'income', 'ed']
 
 ## load HDI measures
 hdi = pd.read_pickle(os.path.join(c.data_dir, 'int', 'applications', 'hdi', 'HDI_indicators_and_indices_adm0_clean.p'))
 hdi_subnat = pd.read_pickle(os.path.join(c.data_dir, 'int', 'applications', 'hdi', 'HDI_indicators_and_indices_clean.p'))
 
 ## rename columns 
-hdi = hdi.rename(columns = {'Sub-national HDI': 'hdi', 'Health index': 'health', 'Income index': 'income', 'Educational index ': 'ed'})
-hdi_subnat = hdi_subnat.rename(columns = {'Sub-national HDI': 'hdi', 'Health index': 'health', 'Income index': 'income', 'Educational index ': 'ed'})
+hdi = hdi.rename(columns = {'Sub-national HDI': 'hdi', 'GNI per capita in thousands of US$ (2011 PPP)': 'gni', 'Health index': 'health', 'Income index': 'income', 'Educational index ': 'ed'})
+hdi_subnat = hdi_subnat.rename(columns = {'Sub-national HDI': 'hdi', 'GNI per capita in thousands of US$ (2011 PPP)': 'gni', 'Health index': 'health', 'Income index': 'income', 'Educational index ': 'ed'})
 
 for task in tasks:
     avg = hdi_subnat.groupby('ISO_Code').apply(w_avg, task, 'Population size in millions')
@@ -41,15 +40,7 @@ for task in tasks:
 
 eccu_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_nat.csv'), index_col = 0)
 eccu_subnat_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_subnat.csv'), index_col = 0)
-
-## demean subnational mosaiks feature
-eccu_subnat_demean_feat = eccu_subnat_feat[['Country', 'GID_1']]
-for column in eccu_feat.columns:
-    if column == 'Country':
-        continue
-    merged = eccu_subnat_feat[['Country', 'GID_1', column]].merge(eccu_feat[['Country', column]], left_on = 'Country', right_on = 'Country', suffixes = ('_subnat', '_nat'))
-    merged[column] = merged['{}_subnat'.format(column)] - merged['{}_nat'.format(column)]
-    eccu_subnat_demean_feat = eccu_subnat_demean_feat.merge(merged[['Country', 'GID_1', column]], left_on = ['Country', 'GID_1'], right_on = ['Country', 'GID_1'])
+eccu_subnat_demean_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_subnat_demeaned.csv'), index_col = 0)
 
 ## A-2. prediction!
 
