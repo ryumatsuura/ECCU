@@ -1,9 +1,5 @@
 ## This script matches the global-scale grid data with MOSAIKS features
 
-## set preambles
-subset_n = slice(None)
-subset_feat = slice(None)
-
 ## packages
 import io as b_io
 import geopandas as gpd
@@ -13,10 +9,6 @@ from mosaiks import transforms
 from mosaiks.utils.imports import *
 from shapely.geometry import Point
 from scipy.spatial import distance
-
-lambdas = lambdas_single = c.ml_model['global_lambdas']
-solver = solve.ridge_regression
-solver_kwargs = {'return_preds': True, 'svd_solve': False}
 
 ####################################
 ## A) load global mosaiks features
@@ -52,51 +44,3 @@ latlons = latlons.reindex(X.index)
 gdf_mosaiks = gpd.GeoDataFrame(latlons, geometry = gpd.points_from_xy(latlons.lon, latlons.lat), crs = 'EPSG:4326')
 gdf_mosaiks.merge(X, left_index = True, right_index = True).to_pickle(os.path.join(c.features_dir, 'grid_features.pkl'))
 
-'''
-## A-2. load global grid file
-
-## load global grid file
-grid_path = os.path.join(c.grid_dir, 'WORLD_16_640_UAR_1000000_0.npz')
-npz = np.load(grid_path)
-
-## extract grid 
-lats = npz['lat']
-lons = npz['lon']
-ids = npz['ID']
-
-## convert to geopandas dataframe
-df_grid = gpd.GeoDataFrame({'X': lons, 'Y': lats})
-df_grid['coords'] = list(zip(df_grid['X'], df_grid['Y']))
-df_grid['coords'] = df_grid['coords'].apply(Point)
-gdf_grid = gpd.GeoDataFrame(df_grid, geometry = 'coords', crs = 'EPSG:4326').set_index(ids)
-
-## A-3. find nearest mosaik feature for each grid point
-
-## intialize empty geopandas dataframe
-indices = np.array([])
-
-## loop each 10k observations in grid
-obs = 10000
-for i in range(int(gdf_grid.shape[0] / obs)):
-    
-    ## display the progress
-    print('{} out of {} in progress...'.format(str(i), str(int(gdf_grid.shape[0] / obs))))
-    
-    ## define the first and last obs
-    first = i * obs
-    last  = (i + 1) * obs
-    
-    ## compute distance matrix - compute for each 10k obs in grid
-    dist = distance.cdist(np.dstack([gdf_grid['Y'].values, gdf_grid['X'].values])[0][first:last], np.dstack([gdf_mosaiks['lat'].values, gdf_mosaiks['lon'].values])[0])
-    
-    ## extract Mosaiks features for each grid point and add horizontally
-    indices = np.hstack((indices, gdf_mosaiks.iloc[dist.argmin(axis = 1)].index))
-
-## match grid index with mosaiks features
-mosaiks_feat = X.loc[indices]
-grid_feat = mosaiks_feat.set_index(gdf_grid.index)
-merged = grid_feat.join(gdf_grid[['X', 'Y']])
-
-## save the cleaned MOSAIKS features
-merged.to_pickle(os.path.join(c.features_dir, 'grid_features.pkl'))
-'''

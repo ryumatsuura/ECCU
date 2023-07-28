@@ -9,15 +9,15 @@ from mosaiks import transforms
 from mosaiks.utils.imports import *
 from sklearn.metrics import *
 
-## extract bounds for density
-c_app = getattr(c, 'population')
-clip_bounds = c_app['world_bounds_pred']
-lb = clip_bounds[0]
-ub = clip_bounds[1]
-
 ###############
 ## A) predict
 ###############
+
+## extract bounds for density
+pop = pd.read_csv(os.path.join(c.data_dir, 'int', 'applications', 'population', 'outcome_sampled_population_global.csv'), index_col = 0)
+pop = pop.loc[pop['population'].isnull() == False]
+lb = np.array(pop['population']).min(axis = 0)
+ub = np.array(pop['population']).max(axis = 0)
 
 ## A-1. extract weights vectors
 

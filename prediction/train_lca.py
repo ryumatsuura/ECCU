@@ -18,7 +18,7 @@ from sklearn.preprocessing import StandardScaler
 
 lambdas = lambdas_single = c.ml_model['global_lambdas']
 solver = solve.ridge_regression
-solver_kwargs = {'return_preds':True, 'svd_solve':False}
+solver_kwargs = {'return_preds': True, 'svd_solve': False}
 
 ###################################
 ## A) load label and MOSAIKS data
@@ -34,6 +34,7 @@ lca_2010['hhincome'] = lca_2010['hhincome'].fillna(lca_2010.groupby(['district',
 lca_2010['settlement'] = lca_2010['settlement'].fillna(lca_2010.groupby(['district', 'ed', 'hh'])['settlement'].transform('mean')).astype(int)
 
 ## collapse down to household level
+lca_2010 = lca_2010.merge(lca_2010.groupby(['district', 'ed', 'hh']).size().to_frame('pop').reset_index(), left_on = ['district', 'ed', 'hh'], right_on = ['district', 'ed', 'hh'])
 lca_2010_hh = lca_2010.drop(columns = ['p34_per_num']).drop_duplicates()
 
 ## create admin code - aggregate castries to district 13
@@ -42,61 +43,98 @@ lca_2010_hh['adm1code'] = 'LC' + lca_2010_hh['adm2code'].str[0:2]
 lca_2010_hh.loc[lca_2010_hh['adm1code'].isin(['LC01', 'LC02', 'LC03']), ['adm1code']] = 'LC13'
 
 ## aggregate household income to settlement level and standardize it
-lca_2010_settle = lca_2010_hh.groupby(['adm1code', 'settlement'])['hhincome'].sum()
-lca_2010_settle = lca_2010_settle.to_frame('agg_income').reset_index().merge(lca_2010_hh.groupby(['adm1code', 'settlement']).size().to_frame('hh_num').reset_index(), left_on = ['adm1code', 'settlement'], right_on = ['adm1code', 'settlement'])
-lca_2010_settle['avg_income'] = lca_2010_settle['agg_income'] / lca_2010_settle['hh_num']
+lca_2010_settle = lca_2010_hh.groupby(['adm1code', 'settlement'])[['hhincome', 'pop']].sum()
+lca_2010_settle = lca_2010_settle.reset_index().merge(lca_2010_hh.groupby(['adm1code', 'settlement']).size().to_frame('hh_num').reset_index(), left_on = ['adm1code', 'settlement'], right_on = ['adm1code', 'settlement'])
+lca_2010_settle['avg_income'] = lca_2010_settle['hhincome'] / lca_2010_settle['hh_num']
 lca_2010_settle['income'] = StandardScaler().fit_transform(lca_2010_settle[['avg_income']])
 
 ## load demeaned mosaiks feat
-mosaiks_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_lca_settle_demeaned.csv'), index_col = 0)
+mosaiks_only = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_lca_settle_demeaned.csv'), sep = ',', index_col = 0)
+nl_only = pd.read_pickle(os.path.join(c.data_dir, 'int', 'applications', 'nightlights', 'lca_settle_nl_features_pop_weighted.pkl'))
 
-## select enumeration districts that match with MOSAIKS data
-Y = lca_2010_settle.merge(mosaiks_feat[['ADM1_Code', 'Settle_Code']], left_on = ['adm1code', 'settlement'], right_on = ['ADM1_Code', 'Settle_Code'])
-X = mosaiks_feat.merge(Y[['ADM1_Code', 'Settle_Code']], left_on = ['ADM1_Code', 'Settle_Code'], right_on = ['ADM1_Code', 'Settle_Code'])
+## set index
+lca_2010_settle = lca_2010_settle.set_index(lca_2010_settle['adm1code'] + ':' + lca_2010_settle['settlement'].astype(str)).drop(columns = ['adm1code', 'settlement'])
+mosaiks_only = mosaiks_only.set_index(mosaiks_only['ADM1_Code'] + ':' + mosaiks_only['Settle_Code'].astype(str)).drop(columns = ['ADM1_Code', 'Settle_Code'])
+nl_only = nl_only.set_index(nl_only['ADM1_PCODE'] + ':' + nl_only['SETTLECODE'].astype(str)).drop(columns = ['ADM1_PCODE', 'SETTLECODE'])
+
+## merge mosaiks and nighttime light
+both = pd.merge(mosaiks_only, nl_only, left_index = True, right_index = True)
 
 ###################
 ## B) train model 
 ###################
 
-## convert data to numpy array
-Y_np = np.array(Y['income'])
-X_np = X.iloc[:, 2:4002].to_numpy()
+for df in (mosaiks_only, nl_only, both):
+    
+    ## obtain name of features
+    name = next(x for x in globals() if globals()[x] is df)
+    
+    ## obtain common indices
+    indices = pd.merge(lca_2010_settle, df, left_index = True, right_index = True).index
+    
+    ## convert data to numpy array
+    Y_np = np.array(lca_2010_settle.loc[indices, ['income']])
+    X_np = df[df.index.isin(indices)].to_numpy()
+    
+    ## set the bounds
+    mins = Y_np.min(axis = 0)
+    maxs = Y_np.max(axis = 0)
+    solver_kwargs['clip_bounds'] = np.vstack((mins, maxs)).T
+    
+    ## split the data into training vs testing sets
+    X_train, X_test, Y_train, Y_test, idxs_train, idsx_test = parse.split_data_train_test(
+        X_np, Y_np, frac_test = c.ml_model['test_set_frac'], return_idxs = True
+    )
+    
+    ## define limit to subsets
+    Y_train = Y_train[subset_n]
+    X_train = X_train[subset_n, subset_feat]
+    
+    kfold_results = solve.kfold_solve(
+        X_train, Y_train, solve_function = solver, num_folds = c.ml_model['n_folds'],
+        return_model = True, lambdas = lambdas_single, **solver_kwargs
+    )
+    
+    ## get best predictions from model
+    best_lambda_idx, best_metrics, best_preds = ir.interpret_kfold_results(
+        kfold_results, 'r2_score', hps = [('lambdas', lambdas_single)]
+    )
+    
+    ## set best lambda
+    best_lambda = np.array([lambdas_single[best_lambda_idx[0]]])
+    
+    ## retrain the model using the best lambda
+    holdout_results = solve.single_solve(
+        X_train[subset_n, subset_feat], X_test[:, subset_feat], Y_train[subset_n], Y_test,
+        lambdas = best_lambda, return_preds = True, return_model = True, clip_bounds = [np.array([mins, maxs])]
+    )
+    
+    wts = holdout_results['models'][0][0][0]
+    np.savetxt(os.path.join(c.data_dir, 'int', 'weights', 'lca_settle_{}_income.csv'.format(name)), wts, delimiter = ',')
+    
+    ## store performance metrics
+    globals()[f'mse_{name}'] = holdout_results['metrics_test'][0][0][0]['mse']
+    globals()[f'r2_{name}'] = holdout_results['metrics_test'][0][0][0]['r2_score']
+    
+    del Y_np, X_np, indices
 
-## set the bounds
-mins = Y_np.min(axis = 0)
-maxs = Y_np.max(axis = 0)
-solver_kwargs['clip_bounds'] = np.vstack((mins, maxs)).T
+## store mse and r-square into one csv file
+rows = [
+    {'Metrics': 'St. Lucia',
+     'MOSAIKS: MSE': mse_mosaiks_only,
+     'MOSAIKS: R-square': r2_mosaiks_only,
+     'NL: MSE': mse_nl_only,
+     'NL: R-square': r2_nl_only,
+     'Both: MSE': mse_both,
+     'Both: R-square': r2_both}
+]
 
-## split the data into training vs testing sets
-X_train, X_test, Y_train, Y_test, idxs_train, idsx_test = parse.split_data_train_test(
-    X_np, Y_np, frac_test = c.ml_model['test_set_frac'], return_idxs = True
-)
+fn = os.path.join(c.out_dir, 'metrics', 'lca_income_insample_metrics.csv')
+with open(fn, 'w', encoding = 'UTF8', newline = '') as f:
+    writer = csv.DictWriter(f, fieldnames = ['Metrics', 'MOSAIKS: MSE', 'MOSAIKS: R-square', 'NL: MSE', 'NL: R-square', 'Both: MSE', 'Both: R-square'])
+    writer.writeheader()
+    writer.writerows(rows)
 
-## define limit to subsets
-Y_train = Y_train[subset_n]
-X_train = X_train[subset_n, subset_feat]
-
-kfold_results = solve.kfold_solve(
-    X_train, Y_train, solve_function = solver, num_folds = c.ml_model['n_folds'],
-    return_model = True, lambdas = lambdas_single, **solver_kwargs
-)
-
-## get best predictions from model
-best_lambda_idx, best_metrics, best_preds = ir.interpret_kfold_results(
-    kfold_results, 'r2_score', hps = [('lambdas', lambdas_single)]
-)
-
-## set best lambda
-best_lambda = np.array([lambdas_single[best_lambda_idx[0]]])
-
-## retrain the model using the best lambda
-holdout_results = solve.single_solve(
-    X_train[subset_n, subset_feat], X_test[:, subset_feat], Y_train[subset_n], Y_test,
-    lambdas = best_lambda, return_preds = True, return_model = True, clip_bounds = [np.array([mins, maxs])]
-)
-
-wts = holdout_results['models'][0][0][0]
-np.savetxt(os.path.join(c.data_dir, 'int', 'weights', 'lca_settle_income.csv'), wts, delimiter = ',')
 
 ###############
 ## C) predict
@@ -264,6 +302,22 @@ for income in ['income', 'income_lb', 'income_ub', 'income_mid']:
         fig.savefig(os.path.join(c.out_dir, 'population', 'lca_population_income_census.png'), bbox_inches = 'tight', pad_inches = 0.1)
     else:
         fig.savefig(os.path.join(c.out_dir, 'population', 'lca_population_{}_lfs.png'.format(income)), bbox_inches = 'tight', pad_inches = 0.1)
+
+## plot income against income 
+for income in ['income_lb', 'income_ub', 'income_mid']:
+    plt.clf()
+    fig, ax = plt.subplots()
+    ax.scatter(np.array(merged['income']), np.array(merged[income]))
+    xmin = np.min(np.array(merged['income']))
+    p1, p0 = np.polyfit(np.array(merged['income']), np.array(merged[income]), deg = 1)
+    newp0 = p0 + xmin * p1
+    ax.axline(xy1 = (xmin, newp0), slope = p1, color = 'r', lw = 2)
+    ax.set_xlabel('Standardized Income per Capita from Census')
+    ax.set_ylabel('Standardized Income per Capita from LFS')
+    stat = (f"$r$ = {np.corrcoef(merged['income'], merged[income])[0][1]:.2f}")
+    bbox = dict(boxstyle = 'round', fc = 'blanchedalmond', alpha = 0.5)
+    ax.text(0.95, 0.07, stat, fontsize = 12, bbox = bbox, transform = ax.transAxes, horizontalalignment = 'right')
+    fig.savefig(os.path.join(c.out_dir, 'income', 'lca_income_{}_lfs.png'.format(income)), bbox_inches = 'tight', pad_inches = 0.1)
 
 ## store mean and variances into one csv file
 rows = [

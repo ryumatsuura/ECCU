@@ -148,7 +148,13 @@ for (c in c('brb', 'glp', 'mtq')) {
     
     ## thiessen polygons
     v = voronoi(cbind(Lons, Lats))
+    v$lat = Lats
+    v$lon = Lons
     v_crop = intersect(v, shp)
+    proj4string(v_crop) = crs
+    
+    ## save the thiessen polygons
+    writeOGR(obj = v_crop, dsn = file.path(data_dir, 'int/shp'), layer = paste0(toupper(c), '_mosaiks_voronoi_poly'), driver = 'ESRI Shapefile', overwrite_layer = TRUE)
     
     ## select coordinates that remain even after conversion to voronoi polygons
     coords = as.data.frame(cbind(v$id, Lons, Lats))
@@ -174,7 +180,7 @@ for (c in c('brb', 'glp', 'mtq')) {
     colnames(df) = c('lon', 'lat', 'population')
     
     ## save the label
-    fn = file.path(data_dir, paste0('int/applications/population/outcome_sampled_population1_', toupper(c), '.csv'))
+    fn = file.path(data_dir, paste0('int/applications/population/outcome_sampled_population_', toupper(c), '.csv'))
     write.csv(x = df, file = fn)
 }
 

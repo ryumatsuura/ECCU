@@ -18,7 +18,7 @@ from sklearn.preprocessing import StandardScaler
 
 lambdas = lambdas_single = c.ml_model['global_lambdas']
 solver = solve.ridge_regression
-solver_kwargs = {'return_preds':True, 'svd_solve':False}
+solver_kwargs = {'return_preds': True, 'svd_solve': False}
 
 ###################################
 ## A) load label and MOSAIKS data
@@ -55,57 +55,93 @@ df = psu_tot_weight.merge(agg_income.rename('agg_income'), left_index = True, ri
 df['avg_income']  = df['agg_income'] / df['weight']
 df['income'] = StandardScaler().fit_transform(df[['avg_income']])
 
-## load MOSAIKS data
-mosaiks_feat = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_brb_ed_demeaned.csv'), sep = ',', index_col = 0)
+## load MOSAIKS and NL data
+mosaiks_only = pd.read_csv(os.path.join(c.features_dir, 'aggregate_mosaiks_features_brb_ed_demeaned.csv'), sep = ',', index_col = 0)
+nl_only = pd.read_pickle(os.path.join(c.data_dir, 'int', 'applications', 'nightlights', 'brb_ed_nl_features_pop_weighted.pkl'))
 
-## select enumeration districts that match with MOSAIKS data
-Y = df.merge(mosaiks_feat[['psu']], left_index = True, right_on = 'psu')
+## set index
+mosaiks_only = mosaiks_only.set_index('psu')
+nl_only = nl_onlynl.set_index('psu')
+
+## merge mosaiks and nl
+both = pd.merge(mosaiks_only, nl_only, left_index = True, right_index = True)
 
 ###################
 ## B) train model 
 ###################
 
-## B-1. Barbados data - doesn't work well
+## B-1. Barbados data
 
-## convert data to numpy array
-Y_np = np.array(Y['income'])
-mosaiks_feat_np = mosaiks_feat.iloc[:, 1:4001].to_numpy()
+for xdf in (mosaiks_only, nl_only, both):
+    
+    ## obtain name of features
+    name = next(x for x in globals() if globals()[x] is xdf)
+ 
+    ## obtain common indices
+    indices = pd.merge(df, xdf, left_index = True, right_index = True).index
+    
+    ## convert data to numpy array
+    Y_np = np.array(df.loc[indices, ['income']])
+    X_np = xdf[xdf.index.isin(indices)].to_numpy()
+    
+    ## set the bounds
+    mins = Y_np.min(axis = 0)
+    maxs = Y_np.max(axis = 0)
+    solver_kwargs['clip_bounds'] = np.vstack((mins, maxs)).T
+    
+    ## split the data into training vs testing sets
+    X_train, X_test, Y_train, Y_test, idxs_train, idsx_test = parse.split_data_train_test(
+        X_np, Y_np, frac_test = c.ml_model['test_set_frac'], return_idxs = True
+    )
+    
+    ## define limit to subsets
+    Y_train = Y_train[subset_n]
+    X_train = X_train[subset_n, subset_feat]
+    
+    kfold_results = solve.kfold_solve(
+        X_train, Y_train, solve_function = solver, num_folds = c.ml_model['n_folds'],
+        return_model = True, lambdas = lambdas_single, **solver_kwargs
+    )
+    
+    ## get best predictions from model
+    best_lambda_idx, best_metrics, best_preds = ir.interpret_kfold_results(
+        kfold_results, 'r2_score', hps = [('lambdas', lambdas_single)]
+    )
+    
+    ## set best lambda
+    best_lambda = np.array([lambdas_single[best_lambda_idx[0]]])
+    
+    ## retrain the model using the best lambda
+    holdout_results = solve.single_solve(
+        X_train[subset_n, subset_feat], X_test[:, subset_feat], Y_train[subset_n], Y_test,
+        lambdas = best_lambda, return_preds = True, return_model = True, clip_bounds = [np.array([mins, maxs])]
+    )
+    
+    wts = holdout_results['models'][0][0][0]
+    np.savetxt(os.path.join(c.data_dir, 'int', 'weights', 'brb_ed_{}_income.csv'.format(name)), wts, delimiter = ',')
+    
+    ## store performance metrics
+    globals()[f'mse_{name}'] = holdout_results['metrics_test'][0][0][0]['mse']
+    globals()[f'r2_{name}'] = holdout_results['metrics_test'][0][0][0]['r2_score']
+    
+    del Y_np, X_np, indices
 
-## set the bounds
-mins = Y_np.min(axis = 0)
-maxs = Y_np.max(axis = 0)
-solver_kwargs['clip_bounds'] = np.vstack((mins, maxs)).T
+## store mse and r-square into one csv file
+rows = [
+    {'Metrics': 'Barbados',
+     'MOSAIKS: MSE': mse_mosaiks_only,
+     'MOSAIKS: R-square': r2_mosaiks_only,
+     'NL: MSE': mse_nl_only,
+     'NL: R-square': r2_nl_only,
+     'Both: MSE': mse_both,
+     'Both: R-square': r2_both}
+]
 
-## split the data into training vs testing sets
-X_train, X_test, Y_train, Y_test, idxs_train, idsx_test = parse.split_data_train_test(
-    mosaiks_feat_np, Y_np, frac_test = c.ml_model['test_set_frac'], return_idxs = True
-)
-
-## define limit to subsets
-Y_train = Y_train[subset_n]
-X_train = X_train[subset_n, subset_feat]
-
-kfold_results = solve.kfold_solve(
-    X_train, Y_train, solve_function = solver, num_folds = c.ml_model['n_folds'],
-    return_model = True, lambdas = lambdas_single, **solver_kwargs
-)
-
-## get best predictions from model
-best_lambda_idx, best_metrics, best_preds = ir.interpret_kfold_results(
-    kfold_results, 'r2_score', hps = [('lambdas', lambdas_single)]
-)
-
-## set best lambda
-best_lambda = np.array([lambdas_single[best_lambda_idx[0]]])
-
-## retrain the model using the best lambda
-holdout_results = solve.single_solve(
-    X_train[subset_n, subset_feat], X_test[:, subset_feat], Y_train[subset_n], Y_test,
-    lambdas = best_lambda, return_preds = True, return_model = True, clip_bounds = [np.array([mins, maxs])]
-)
-
-wts = holdout_results['models'][0][0][0]
-np.savetxt(os.path.join(c.data_dir, 'int', 'weights', 'brb_ed_income.csv'), wts, delimiter = ',')
+fn = os.path.join(c.out_dir, 'metrics', 'brb_income_insample_metrics.csv')
+with open(fn, 'w', encoding = 'UTF8', newline = '') as f:
+    writer = csv.DictWriter(f, fieldnames = ['Metrics', 'MOSAIKS: MSE', 'MOSAIKS: R-square', 'NL: MSE', 'NL: R-square', 'Both: MSE', 'Both: R-square'])
+    writer.writeheader()
+    writer.writerows(rows)
 
 ###############
 ## C) predict

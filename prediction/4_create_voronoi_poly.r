@@ -51,6 +51,8 @@ v_crop = intersect(v, shp)
 v_crop_sf = st_as_sf(v_crop['COUNTRY'])
 bslc_sf = st_as_sf(bslc_ed, coords = c('long_cen', 'lat_cen'))
 psu_poly = st_join(v_crop_sf, bslc_sf)
+psu_poly = psu_poly[!is.na(psu_poly$psu), ]
+st_crs(psu_poly) = crs
 
 ## export voronoi polygons
 st_write(psu_poly, file.path(data_dir, 'int/shp'), 'BRB_voronoi_poly', driver = 'ESRI Shapefile', append = FALSE, delete_layer = TRUE)

@@ -9,6 +9,7 @@ library(gdalUtilities)
 library(deldir)
 library(dismo)
 library(rgeos)
+library(sf)
 library(exactextractr)
 
 rm(list = ls())
@@ -25,13 +26,12 @@ source(file.path(utils_dir, 'R_utils.R'))
 
 crs = CRS(as.character('+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0'))
 
-#####################################
-## A) extract population density/nl
-#####################################
+##################################
+## A) extract population density
+##################################
 
 ## load raster files
 pop = raster(file.path(data_dir, 'raw/applications/population/gpw_v4_population_density_rev10_2015_30_sec.tif'))
-nl = raster(file.path(data_dir, 'raw/applications/nightlights/F182013.v4c_web.stable_lights.avg_vis.tif'))
 
 ## load grid data matched with MOSAIKS features
 pd = import('pandas')
@@ -51,6 +51,12 @@ pixels = npz$f[['pixels']]
 
 ## create rectangles 
 recs = centroidsToTiles(lat = lats, lon = lons, zoom = zoom, numPix = pixels)
+recs_df = as(recs, 'SpatialPolygonsDataFrame')
+recs_df$lat = lats
+recs_df$lon = lons
+
+## save the rectangles shapefile
+writeOGR(obj = recs_df[, (2:3)], dsn = file.path(data_dir, 'int/shp'), layer = 'recs_global', driver = 'ESRI Shapefile', overwrite_layer = TRUE)
 
 ## set the extent
 e = extent(recs)
@@ -60,27 +66,19 @@ e@xmax = e@xmax + delta
 e@ymin = e@ymin - delta
 e@ymax = e@ymax + delta
 
-## loop over population density and nightlight
-for (var in c('population', 'nightlights')) {
-    
-    ## crop the population raster by bounding box
-    if (var == 'population') {
-        ras_crop = crop(pop, e)
-    } else if (var == 'nightlights') {
-        ras_crop = crop(nl, e)
-    }
-    
-    ## extract mean population raster value in each rectangle
-    out = exact_extract(x = ras_crop, y = recs, fun = 'weighted_mean', weights = 'area', progress = TRUE)
-    ln = log(out + 1)
-    
-    ## convert to data table
-    df = cbind(lons, lats, ln)
-    colnames(df) = c('lon', 'lat', var)
-    dt = data.table(df)
-    
-    ## output global populatin data
-    fn = file.path(data_dir, paste0('int/applications/', var, '/outcome_sampled_', var, '_global.csv'))
-    write.csv(x = df, file = fn)
-}
+## crop the population raster by bounding box
+ras_crop = crop(pop, e)
+
+## extract mean population raster value in each rectangle
+out = exact_extract(x = ras_crop, y = recs, fun = 'weighted_mean', weights = 'area', progress = TRUE)
+ln = log(out + 1)
+
+## convert to data table
+df = cbind(lons, lats, ln)
+colnames(df) = c('lon', 'lat', 'population')
+dt = data.table(df)
+
+## output global populatin data
+fn = file.path(data_dir, paste0('int/applications/population/outcome_sampled_population_global.csv'))
+write.csv(x = df, file = fn)
 
