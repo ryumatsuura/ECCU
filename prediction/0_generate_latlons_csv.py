@@ -6,6 +6,10 @@ import numpy as np
 import pandas as pd
 from mosaiks import config as c
 
+## create folder if not exists
+if not os.path.exists(c.features_dir):
+    os.makedirs(c.features_dir)
+
 ## load global grid file
 grid_path = os.path.join(c.grid_dir, 'WORLD_16_640_UAR_1000000_0.npz')
 npz = np.load(grid_path)
