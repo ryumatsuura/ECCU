@@ -26,6 +26,7 @@ wts_cont_fixed = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'globa
 wts_brb = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'brb_both_population.csv'), delimiter = ',')
 wts_glp = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'glp_both_population.csv'), delimiter = ',')
 wts_mtq = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'mtq_both_population.csv'), delimiter = ',')
+wts_lca = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'lca_both_population.csv'), delimiter = ',')
 wts_nbr = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'nbr_both_population.csv'), delimiter = ',')
 wts_brb_ed = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'brb_ed_both_population.csv'), delimiter = ',')
 wts_lca_settle = np.genfromtxt(os.path.join(c.data_dir, 'int', 'weights', 'lca_settle_both_population.csv'), delimiter = ',')
@@ -85,11 +86,11 @@ X = pd.merge(X.drop(columns = {'sample', 'sample_fixed'}), X[['sample', 'sample_
 X_subnat = pd.merge(X_subnat.drop(columns = {'sample', 'sample_fixed'}), X_subnat[['sample', 'sample_fixed']], left_index = True, right_index = True)
 X_mosaiks = pd.merge(X_mosaiks.drop(columns = {'sample', 'sample_fixed'}), X_mosaiks[['sample', 'sample_fixed']], left_index = True, right_index = True)
 
-## A-3. prediction!
+## A-4. prediction!
 
 ## loop over national level and subnational level predictions and then weights
 for df in (X, X_subnat, X_mosaiks):
-    for w in (wts_global, wts_cont, wts_cont_fixed, wts_brb, wts_glp, wts_mtq, wts_nbr, wts_brb_ed, wts_lca_settle, wts_nat, wts_subnat):
+    for w in (wts_global, wts_cont, wts_cont_fixed, wts_brb, wts_glp, wts_mtq, wts_lca, wts_nbr, wts_brb_ed, wts_lca_settle, wts_nat, wts_subnat):
         
         ## extract bounds for density
         if np.array_equiv(w, wts_global) or np.array_equiv(w, wts_cont) or np.array_equiv(w, wts_cont_fixed):
@@ -100,6 +101,8 @@ for df in (X, X_subnat, X_mosaiks):
             pop = pd.read_pickle(os.path.join(c.data_dir, 'int', 'population', 'glp_mosaiks_population.pkl'))
         elif np.array_equiv(w, wts_mtq):
             pop = pd.read_pickle(os.path.join(c.data_dir, 'int', 'population', 'mtq_mosaiks_population.pkl'))
+        elif np.array_equiv(w, wts_lca):
+            pop = pd.read_pickle(os.path.join(c.data_dir, 'int', 'population', 'lca_mosaiks_population.pkl'))
         elif np.array_equiv(w, wts_nbr):
             pop_brb = pd.read_pickle(os.path.join(c.data_dir, 'int', 'population', 'brb_mosaiks_population.pkl'))
             pop_glp = pd.read_pickle(os.path.join(c.data_dir, 'int', 'population', 'glp_mosaiks_population.pkl'))
@@ -120,7 +123,7 @@ for df in (X, X_subnat, X_mosaiks):
         name = next(x for x in globals() if globals()[x] is w)
         
         ## predict using global-scale weights vector
-        if np.array_equiv(w, wts_global) or np.array_equiv(w, wts_brb) or np.array_equiv(w, wts_glp) or np.array_equiv(w, wts_mtq) or np.array_equiv(w, wts_nbr) or np.array_equiv(w, wts_brb_ed) or np.array_equiv(w, wts_lca_settle) or np.array_equiv(w, wts_nat) or np.array_equiv(w, wts_subnat):
+        if np.array_equiv(w, wts_global) or np.array_equiv(w, wts_brb) or np.array_equiv(w, wts_glp) or np.array_equiv(w, wts_mtq) or np.array_equiv(w, wts_lca) or np.array_equiv(w, wts_nbr) or np.array_equiv(w, wts_brb_ed) or np.array_equiv(w, wts_lca_settle) or np.array_equiv(w, wts_nat) or np.array_equiv(w, wts_subnat):
             
             ## predict and bound the prediction
             ypreds = np.dot(df.iloc[:, 0:4020], w)
@@ -158,6 +161,10 @@ for df in (X, X_subnat, X_mosaiks):
             if 'eccu_mosaiks_preds' not in locals():
                 eccu_mosaiks_preds = pd.DataFrame([], index = df.index)
             eccu_mosaiks_preds['y_preds_{}'.format(name.replace('wts_', ''))] = ypreds.tolist()
+
+eccu_preds.to_pickle(os.path.join(c.out_dir, 'population', 'eccu_nat_population_preds.pkl'))
+eccu_subnat_preds.to_pickle(os.path.join(c.out_dir, 'population', 'eccu_subnat_population_preds.pkl'))
+eccu_mosaiks_preds.to_pickle(os.path.join(c.out_dir, 'population', 'eccu_mosaiks_population_preds.pkl'))
 
 ###############################
 ## B) clean ground truth data 
@@ -248,6 +255,10 @@ for df in (merged, merged_subnat, merged_mosaiks):
          'MSE': mean_squared_error(df['ln_pop_density'], df['y_preds_mtq']),
          'MAE': mean_absolute_error(df['ln_pop_density'], df['y_preds_mtq']),
          'R-square': r2_score_mtq},
+        {'Metrics': 'St. Lucia-based',
+         'MSE': mean_squared_error(df['ln_pop_density'], df['y_preds_lca']),
+         'MAE': mean_absolute_error(df['ln_pop_density'], df['y_preds_lca']),
+         'R-square': r2_score_lca},
         {'Metrics': 'Neighbors-based',
          'MSE': mean_squared_error(df['ln_pop_density'], df['y_preds_nbr']),
          'MAE': mean_absolute_error(df['ln_pop_density'], df['y_preds_nbr']),
@@ -306,6 +317,9 @@ for df in (merged, merged_subnat, merged_mosaiks):
         {'Descriptives': 'Martinique-based',
          'Mean': df['y_preds_mtq'].mean(),
          'Variance': df['y_preds_mtq'].var()},
+        {'Descriptives': 'St. Lucia-based',
+         'Mean': df['y_preds_lca'].mean(),
+         'Variance': df['y_preds_lca'].var()},
         {'Descriptives': 'Neighbors-based',
          'Mean': df['y_preds_nbr'].mean(),
          'Variance': df['y_preds_nbr'].var()},

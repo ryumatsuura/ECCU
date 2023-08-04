@@ -27,11 +27,11 @@ if not os.path.exists(os.path.join(c.out_dir, 'metrics')):
 ## A) train model in neighboring countries
 ############################################
 
-## A-1. Train by country
+## A-1. Train by country - neighboring countries + St. Lucia
 
-for country in ['brb', 'glp', 'mtq']:
+for country in ['brb', 'glp', 'mtq', 'lca']:
     
-    ## load population data for Barbados/Guadeloupe/Martinique
+    ## load population data for Barbados/Guadeloupe/Martinique/St. Lucia
     pop = pd.read_pickle(os.path.join(c.data_dir, 'int', 'population', '{}_mosaiks_population.pkl'.format(country)))
     
     ## load MOSAIKS and nl data
@@ -203,32 +203,39 @@ for sample in ['in', 'out']:
     ## store mse and r-square into one csv file
     rows = [
         {'Metrics': 'Barbados-based',
-         'MOSAIKS: MSE': globals()[f'{sample}_mse_mosaiks_only_brb'], 
+         'MOSAIKS: MSE': globals()[f'{sample}_mse_mosaiks_only_brb'],
          'MOSAIKS: R-square': globals()[f'{sample}_r2_mosaiks_only_brb'],
-         'NL: MSE': globals()[f'{sample}_mse_nl_only_brb'], 
+         'NL: MSE': globals()[f'{sample}_mse_nl_only_brb'],
          'NL: R-square': globals()[f'{sample}_r2_nl_only_brb'],
-         'Both: MSE': globals()[f'{sample}_mse_both_brb'], 
+         'Both: MSE': globals()[f'{sample}_mse_both_brb'],
          'Both: R-square': globals()[f'{sample}_r2_both_brb']},
-        {'Metrics': 'Guadeloupe-based', 
-         'MOSAIKS: MSE': globals()[f'{sample}_mse_mosaiks_only_glp'], 
+        {'Metrics': 'Guadeloupe-based',
+         'MOSAIKS: MSE': globals()[f'{sample}_mse_mosaiks_only_glp'],
          'MOSAIKS: R-square': globals()[f'{sample}_r2_mosaiks_only_glp'],
-         'NL: MSE': globals()[f'{sample}_mse_nl_only_glp'], 
+         'NL: MSE': globals()[f'{sample}_mse_nl_only_glp'],
          'NL: R-square': globals()[f'{sample}_r2_nl_only_glp'],
-         'Both: MSE': globals()[f'{sample}_mse_both_glp'], 
-         'Both: R-square': globals()[f'{sample}_r2_both_glp']},     
-        {'Metrics': 'Martinique-based', 
-         'MOSAIKS: MSE': globals()[f'{sample}_mse_mosaiks_only_mtq'], 
+         'Both: MSE': globals()[f'{sample}_mse_both_glp'],
+         'Both: R-square': globals()[f'{sample}_r2_both_glp']},
+        {'Metrics': 'Martinique-based',
+         'MOSAIKS: MSE': globals()[f'{sample}_mse_mosaiks_only_mtq'],
          'MOSAIKS: R-square': globals()[f'{sample}_r2_mosaiks_only_mtq'],
-         'NL: MSE': globals()[f'{sample}_mse_nl_only_mtq'], 
+         'NL: MSE': globals()[f'{sample}_mse_nl_only_mtq'],
          'NL: R-square': globals()[f'{sample}_r2_nl_only_mtq'],
-         'Both: MSE': globals()[f'{sample}_mse_both_mtq'], 
-         'Both: R-square': globals()[f'{sample}_r2_both_mtq']},          
-        {'Metrics': 'Neighbors-based', 
-         'MOSAIKS: MSE': globals()[f'{sample}_mse_mosaiks_only_comb'], 
+         'Both: MSE': globals()[f'{sample}_mse_both_mtq'],
+         'Both: R-square': globals()[f'{sample}_r2_both_mtq']},
+        {'Metrics': 'St. Lucia-based',
+         'MOSAIKS: MSE': globals()[f'{sample}_mse_mosaiks_only_lca'],
+         'MOSAIKS: R-square': globals()[f'{sample}_r2_mosaiks_only_lca'],
+         'NL: MSE': globals()[f'{sample}_mse_nl_only_lca'],
+         'NL: R-square': globals()[f'{sample}_r2_nl_only_lca'],
+         'Both: MSE': globals()[f'{sample}_mse_both_lca'],
+         'Both: R-square': globals()[f'{sample}_r2_both_lca']},
+        {'Metrics': 'Neighbors-based',
+         'MOSAIKS: MSE': globals()[f'{sample}_mse_mosaiks_only_comb'],
          'MOSAIKS: R-square': globals()[f'{sample}_r2_mosaiks_only_comb'],
-         'NL: MSE': globals()[f'{sample}_mse_nl_only_comb'], 
+         'NL: MSE': globals()[f'{sample}_mse_nl_only_comb'],
          'NL: R-square': globals()[f'{sample}_r2_nl_only_comb'],
-         'Both: MSE': globals()[f'{sample}_mse_both_comb'], 
+         'Both: MSE': globals()[f'{sample}_mse_both_comb'],
          'Both: R-square': globals()[f'{sample}_r2_both_comb']}
     ]
     

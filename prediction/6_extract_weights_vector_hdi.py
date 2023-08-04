@@ -17,12 +17,6 @@ lambdas = lambdas_single = np.hstack([1, (np.logspace(-3, 6, 8) ** .3)])
 solver = solve.ridge_regression
 solver_kwargs = {'return_preds': True, 'svd_solve': False}
 
-## define function for weighted average
-def w_avg(df, values, weights):
-    d = df[values]
-    w = df[weights]
-    return (d * w).sum() / w.sum()
-
 ## specify outcome variables
 tasks = ['hdi', 'gni', 'health', 'income', 'ed']
 
@@ -80,21 +74,39 @@ subnat_nl = subnat_nl.drop(columns = ['iso_code'])
 ## load HDI measures
 hdi = pd.read_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'HDI_indicators_and_indices_adm0_clean.p')).loc[mosaiks_feat.index]
 subnat_hdi = pd.read_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'HDI_indicators_and_indices_clean.p')).loc[subnat_mosaiks_feat.index]
+subnat_hdi = subnat_hdi.loc[subnat_hdi['Level'] == 'Subnat']
 
 ## rename columns 
 hdi = hdi.rename(columns = {'Sub-national HDI': 'hdi', 'GNI per capita in thousands of US$ (2011 PPP)': 'gni', 'Health index': 'health', 'Income index': 'income', 'Educational index ': 'ed'})
 subnat_hdi = subnat_hdi.rename(columns = {'Sub-national HDI': 'hdi', 'GNI per capita in thousands of US$ (2011 PPP)': 'gni', 'Health index': 'health', 'Income index': 'income', 'Educational index ': 'ed'})
 
+## demean subnational HDI
 for task in tasks:
-    avg = subnat_hdi.groupby('ISO_Code').apply(w_avg, task, 'Population size in millions')
-    subnat_hdi = subnat_hdi.reset_index().merge(avg.rename('avg'), left_on = 'ISO_Code', right_on = 'ISO_Code').set_index('GDLCODE')
-    subnat_hdi['demeaned_{}'.format(task)] = subnat_hdi[task] - subnat_hdi['avg']
-    subnat_hdi = subnat_hdi.drop(columns = ['avg'])
+    merged = subnat_hdi[['ISO_Code', task]].merge(hdi[[task]], left_on = 'ISO_Code', right_index = True)
+    subnat_hdi['demeaned_{}'.format(task)] = merged['{}_x'.format(task)] - merged['{}_y'.format(task)]
+    del merged
+
+## load IWI data
+subnat_iwi = pd.read_csv(os.path.join(c.data_dir, 'raw', 'GDL', 'GDL-Mean-International-Wealth-Index-(IWI)-score-of-region-data.csv')).set_index('GDLCODE').rename(columns = {'2018': 'iwi'})
+iwi = subnat_iwi.loc[subnat_iwi['Level'] == 'National', ['ISO_Code', 'iwi']].set_index('ISO_Code')
+subnat_iwi = subnat_iwi.loc[subnat_iwi['Level'] == 'Subnat', ['ISO_Code', 'iwi']]
+
+## demean subnational IWI
+merged = subnat_iwi.merge(iwi, left_on = 'ISO_Code', right_index = True)
+subnat_iwi['demeaned_iwi'] = merged['iwi_x'] - merged['iwi_y']
+del merged
+
+## merge in IWI into HDI dataset
+hdi = hdi[['hdi', 'gni', 'health', 'income', 'ed']].merge(iwi, left_index = True, right_index = True, how = 'left')
+subnat_hdi = subnat_hdi[['hdi', 'gni', 'health', 'income', 'ed', 'demeaned_hdi', 'demeaned_gni', 'demeaned_health', 'demeaned_income', 'demeaned_ed']].merge(subnat_iwi[['iwi', 'demeaned_iwi']], left_index = True, right_index = True, how = 'left')
 
 ## combine MOSAIKS and nightlight
 new_X = pd.merge(mosaiks_feat, nl, left_index = True, right_index = True)
 subnat_new_X = pd.merge(subnat_mosaiks_feat, subnat_nl, left_index = True, right_index = True)
 subnat_demean_new_X = pd.merge(subnat_demean_mosaiks_feat, subnat_demean_nl, left_index = True, right_index = True)
+
+## update task - add IWI
+tasks.append('iwi')
 
 ###################################
 ## B) train model at global scale
@@ -108,33 +120,57 @@ for task in tasks:
                 ## skip national-demeaned combination
                 if l == 'nat' and y == 'demeaned':
                     continue
-                                
-                ## restructure the dataset for training codes - needs to be numpy arrays 
+                
+                ## obtain common indices
                 if l == 'nat':
-                    hdi_np = np.array(hdi[task])
                     if x == 'mosaiks_only':
-                        X_np = mosaiks_feat.to_numpy()
+                        indices = pd.merge(hdi[task].dropna(), mosaiks_feat, left_index = True, right_index = True).index
                     elif x == 'nl_only':
-                        X_np = nl.to_numpy()
+                        indices = pd.merge(hdi[task].dropna(), nl, left_index = True, right_index = True).index
                     elif x == 'both':
-                        X_np = new_X.to_numpy()
+                        indices = pd.merge(hdi[task].dropna(), new_X, left_index = True, right_index = True).index
                 elif l == 'subnat':
                     if y == 'level':
-                        hdi_np = np.array(subnat_hdi[task])
                         if x == 'mosaiks_only':
-                            X_np = subnat_mosaiks_feat.to_numpy()
+                            indices = pd.merge(subnat_hdi[task].dropna(), subnat_mosaiks_feat, left_index = True, right_index = True).index
                         elif x == 'nl_only':
-                            X_np = subnat_nl.to_numpy()
+                            indices = pd.merge(subnat_hdi[task].dropna(), subnat_nl, left_index = True, right_index = True).index
                         elif x == 'both':
-                            X_np = subnat_new_X.to_numpy()
+                            indices = pd.merge(subnat_hdi[task].dropna(), subnat_new_X, left_index = True, right_index = True).index
                     elif y == 'demeaned':
-                        hdi_np = np.array(subnat_hdi.loc[subnat_hdi['Level'] == 'Subnat']['{}_{}'.format(y, task)])
                         if x == 'mosaiks_only':
-                            X_np = subnat_demean_mosaiks_feat.loc[subnat_hdi.loc[subnat_hdi['Level'] == 'Subnat'].index].to_numpy()
+                            indices = pd.merge(subnat_hdi['{}_{}'.format(y, task)].dropna(), subnat_demean_mosaiks_feat, left_index = True, right_index = True).index
                         elif x == 'nl_only':
-                            X_np = subnat_demean_nl.loc[subnat_hdi.loc[subnat_hdi['Level'] == 'Subnat'].index].to_numpy()
+                            indices = pd.merge(subnat_hdi['{}_{}'.format(y, task)].dropna(), subnat_demean_nl, left_index = True, right_index = True).index
                         elif x == 'both':
-                            X_np = subnat_demean_new_X.loc[subnat_hdi.loc[subnat_hdi['Level'] == 'Subnat'].index].to_numpy()
+                            indices = pd.merge(subnat_hdi['{}_{}'.format(y, task)].dropna(), subnat_demean_new_X, left_index = True, right_index = True).index
+                
+                ## restructure the dataset for training codes - needs to be numpy arrays 
+                if l == 'nat':
+                    hdi_np = np.array(hdi.loc[indices, [task]])
+                    if x == 'mosaiks_only':
+                        X_np = mosaiks_feat[mosaiks_feat.index.isin(indices)].to_numpy()
+                    elif x == 'nl_only':
+                        X_np = nl[nl.index.isin(indices)].to_numpy()
+                    elif x == 'both':
+                        X_np = new_X[new_X.index.isin(indices)].to_numpy()
+                elif l == 'subnat':
+                    if y == 'level':
+                        hdi_np = np.array(subnat_hdi.loc[indices, [task]])
+                        if x == 'mosaiks_only':
+                            X_np = subnat_mosaiks_feat[subnat_mosaiks_feat.index.isin(indices)].to_numpy()
+                        elif x == 'nl_only':
+                            X_np = subnat_nl[subnat_nl.index.isin(indices)].to_numpy()
+                        elif x == 'both':
+                            X_np = subnat_new_X[subnat_new_X.index.isin(indices)].to_numpy()
+                    elif y == 'demeaned':
+                        hdi_np = np.array(subnat_hdi.loc[indices, ['{}_{}'.format(y, task)]])
+                        if x == 'mosaiks_only':
+                            X_np = subnat_demean_mosaiks_feat[subnat_demean_mosaiks_feat.index.isin(indices)].to_numpy()
+                        elif x == 'nl_only':
+                            X_np = subnat_demean_nl[subnat_demean_nl.index.isin(indices)].to_numpy()
+                        elif x == 'both':
+                            X_np = subnat_demean_new_X[subnat_demean_new_X.index.isin(indices)].to_numpy()
                 
                 ## set the bounds
                 mins = hdi_np.min(axis = 0)
@@ -181,7 +217,7 @@ for task in tasks:
                 globals()[f'out_mse_{x}_{l}_{y}'] = holdout_results['metrics_test'][0][0][0]['mse']
                 globals()[f'out_r2_{x}_{l}_{y}'] = holdout_results['metrics_test'][0][0][0]['r2_score']
                 
-                del hdi_np, X_np
+                del hdi_np, X_np, indices
     
     for sample in ['in', 'out']:
         
