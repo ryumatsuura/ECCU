@@ -116,13 +116,9 @@ for task in tasks:
     ## loop over national and subnational level predictions
     for w in (wts_nat, wts_subnat, wts_subnat_demean):
         for df in (X, X_subnat, X_subnat_demean, X_mosaiks, X_mosaiks_demean):
-            
-            ## skip national-level feature and subnational weights (upscaling exercise)
-            if any(df.equals(y) for y in [X]) and (np.array_equiv(w, wts_subnat) or np.array_equiv(w, wts_subnat_demean)):
-                continue
-            
-            ## restrict demean-demain pair
-            if (any(df.equals(y) for y in [X_subnat]) or any(df.equals(y) for y in [X_mosaiks])) and (np.array_equiv(w, wts_subnat_demean)):
+                        
+            ## restrict demean-demain pair for demean weights
+            if (any(df.equals(y) for y in [X]) or any(df.equals(y) for y in [X_subnat]) or any(df.equals(y) for y in [X_mosaiks])) and (np.array_equiv(w, wts_subnat_demean)):
                 continue
             elif (any(df.equals(y) for y in [X_subnat_demean]) or any(df.equals(y) for y in [X_mosaiks_demean])) and (np.array_equiv(w, wts_nat) or np.array_equiv(w, wts_subnat)):
                 continue
@@ -145,7 +141,10 @@ for task in tasks:
             if any(df.equals(y) for y in [X]):
                 if 'eccu_preds' not in locals():
                     eccu_preds = pd.DataFrame([], index = df.index)
-                eccu_preds['{}_preds'.format(task)] = ypreds.tolist()
+                if np.array_equiv(w, wts_nat):
+                    eccu_preds['{}_preds'.format(task)] = ypreds.tolist()
+                elif np.array_equiv(w, wts_subnat):
+                    eccu_preds['{}_preds_subnat'.format(task)] = ypreds.tolist()
             elif (any(df.equals(y) for y in [X_subnat])) or (any(df.equals(y) for y in [X_subnat_demean])):
                 if 'eccu_subnat_preds' not in locals():
                     eccu_subnat_preds = pd.DataFrame([], index = df.index)
@@ -180,37 +179,44 @@ merged = pd.merge(eccu_preds, hdi[tasks], left_index = True, right_index = True)
 merged = merged.loc[(merged.index.values != 'BRB') & (merged.index.values != 'GLP') & (merged.index.values != 'MTQ')]
 
 for task in tasks:
-    
-    ## skip IWI - no ground-truth data
-    if task == 'iwi':
-        continue
+    for x in ['{}_preds'.format(task), '{}_preds_subnat'.format(task)]:
         
-    ## plot prediction against 
-    plt.clf()
-    tot_min = np.min([np.min(np.array(merged['{}_preds'.format(task)])), np.min(np.array(merged[task]))])
-    tot_max = np.max([np.max(np.array(merged['{}_preds'.format(task)])), np.max(np.array(merged[task]))])
-    fig, ax = plt.subplots()
-    ax.scatter(np.array(merged[task]), np.array(merged['{}_preds'.format(task)]))
-    
-    ## add 45 degree line and country names
-    plt.plot([tot_min, tot_max], [tot_min, tot_max], color = 'black', linewidth = 2)
-    for i, txt in enumerate(np.array(merged.index)):
-        ax.annotate(txt, (np.array(merged[task])[i], np.array(merged['{}_preds'.format(task)])[i]))
-    
-    ## add axis title
-    if (task == 'hdi') or (task == 'gni'):
-        ax.set_xlabel('True {}'.format(task.upper()))
-        ax.set_ylabel('Predicted {}'.format(task.upper()))
-    else:
-        ax.set_xlabel('True {} Index'.format(task.capitalize()))
-        ax.set_ylabel('Predicted {} Index'.format(task.capitalize()))
-    
-    ## output the graph
-    fig.savefig(os.path.join(c.out_dir, 'hdi', 'eccu_nat_{}_nat.png'.format(task)), bbox_inches = 'tight', pad_inches = 0.1)
-    
-    ## compute R-square from linear regression model
-    model = LinearRegression().fit(merged[[task]], merged[['{}_preds'.format(task)]])
-    globals()[f'r2_score_{task}'] = model.score(merged[[task]], merged[['{}_preds'.format(task)]])
+        ## skip IWI - no ground-truth data
+        if task == 'iwi':
+            continue
+        
+        ## plot prediction against 
+        plt.clf()
+        tot_min = np.min([np.min(np.array(merged[x])), np.min(np.array(merged[task]))])
+        tot_max = np.max([np.max(np.array(merged[x])), np.max(np.array(merged[task]))])
+        fig, ax = plt.subplots()
+        ax.scatter(np.array(merged[task]), np.array(merged[x]))
+        
+        ## add 45 degree line and country names
+        plt.plot([tot_min, tot_max], [tot_min, tot_max], color = 'black', linewidth = 2)
+        for i, txt in enumerate(np.array(merged.index)):
+            ax.annotate(txt, (np.array(merged[task])[i], np.array(merged[x])[i]))
+        
+        ## add axis title
+        if (task == 'hdi') or (task == 'gni'):
+            ax.set_xlabel('True {}'.format(task.upper()))
+            ax.set_ylabel('Predicted {}'.format(task.upper()))
+        else:
+            ax.set_xlabel('True {} Index'.format(task.capitalize()))
+            ax.set_ylabel('Predicted {} Index'.format(task.capitalize()))
+        
+        ## output the graph
+        if x == '{}_preds'.format(task):
+            fig.savefig(os.path.join(c.out_dir, 'hdi', 'eccu_nat_{}_nat.png'.format(task)), bbox_inches = 'tight', pad_inches = 0.1)
+        elif x == '{}_preds_subnat'.format(task):
+            fig.savefig(os.path.join(c.out_dir, 'hdi', 'eccu_nat_{}_subnat.png'.format(task)), bbox_inches = 'tight', pad_inches = 0.1)
+        
+        ## compute R-square from linear regression model
+        model = LinearRegression().fit(merged[[task]], merged[[x]])
+        if x == '{}_preds'.format(task):
+            globals()[f'r2_score_{task}'] = model.score(merged[[task]], merged[[x]])
+        elif x == '{}_preds_subnat'.format(task):
+            globals()[f'r2_score_{task}_subnat'] = model.score(merged[[task]], merged[[x]])
 
 ## store MSE, MAE, R2
 rows = [
@@ -233,7 +239,27 @@ rows = [
     {'Metrics': 'Education Index',
      'MSE': mean_squared_error(merged['ed'], merged['ed_preds']),
      'MAE': mean_absolute_error(merged['ed'], merged['ed_preds']),
-     'R-square': r2_score_ed}
+     'R-square': r2_score_ed},
+    {'Metrics': 'Subnat HDI',
+     'MSE': mean_squared_error(merged['hdi'], merged['hdi_preds_subnat']),
+     'MAE': mean_absolute_error(merged['hdi'], merged['hdi_preds_subnat']),
+     'R-square': r2_score_hdi_subnat},
+    {'Metrics': 'Subnat GNI',
+     'MSE': mean_squared_error(merged['gni'], merged['gni_preds_subnat']),
+     'MAE': mean_absolute_error(merged['gni'], merged['gni_preds_subnat']),
+     'R-square': r2_score_gni_subnat},
+    {'Metrics': 'Subnat Health Index',
+     'MSE': mean_squared_error(merged['health'], merged['health_preds_subnat']),
+     'MAE': mean_absolute_error(merged['health'], merged['health_preds_subnat']),
+     'R-square': r2_score_health_subnat},
+    {'Metrics': 'Subnat Income Index',
+     'MSE': mean_squared_error(merged['income'], merged['income_preds_subnat']),
+     'MAE': mean_absolute_error(merged['income'], merged['income_preds_subnat']),
+     'R-square': r2_score_income_subnat},
+    {'Metrics': 'Subnat Education Index',
+     'MSE': mean_squared_error(merged['ed'], merged['ed_preds_subnat']),
+     'MAE': mean_absolute_error(merged['ed'], merged['ed_preds_subnat']),
+     'R-square': r2_score_ed_subnat}
 ]
 
 fn = os.path.join(c.out_dir, 'metrics', 'eccu_nat_hdi_metrics.csv')

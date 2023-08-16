@@ -185,10 +185,10 @@ merged = pd.merge(eccu_preds, eccu_nat_pop, left_index = True, right_index = Tru
 merged_subnat = pd.merge(eccu_subnat_preds, eccu_subnat_pop, left_index = True, right_index = True)
 merged_mosaiks = pd.merge(eccu_mosaiks_preds, eccu_mosaiks_pop, left_index = True, right_index = True)
 
-## remove BRB, GLP, and MTQ from analysis 
-merged = merged.loc[(merged['Country'] != 'BRB') & (merged['Country'] != 'GLP') & (merged['Country'] != 'MTQ')]
-merged_subnat = merged_subnat.loc[(merged_subnat['Country'] != 'BRB') & (merged_subnat['Country'] != 'GLP') & (merged_subnat['Country'] != 'MTQ')]
-merged_mosaiks = merged_mosaiks.loc[(merged_mosaiks['Country'] != 'BRB') & (merged_mosaiks['Country'] != 'GLP') & (merged_mosaiks['Country'] != 'MTQ')]
+## remove AIA, BRB, GLP, MSR, and MTQ from analysis 
+merged = merged.loc[(merged['Country'] != 'AIA') & (merged['Country'] != 'BRB') & (merged['Country'] != 'GLP') & (merged['Country'] != 'MSR') & (merged['Country'] != 'MTQ')]
+merged_subnat = merged_subnat.loc[(merged_subnat['Country'] != 'AIA') & (merged_subnat['Country'] != 'BRB') & (merged_subnat['Country'] != 'GLP') & (merged_subnat['Country'] != 'MSR') & (merged_subnat['Country'] != 'MTQ')]
+merged_mosaiks = merged_mosaiks.loc[(merged_mosaiks['Country'] != 'AIA') & (merged_mosaiks['Country'] != 'BRB') & (merged_mosaiks['Country'] != 'GLP') & (merged_mosaiks['Country'] != 'MSR') & (merged_mosaiks['Country'] != 'MTQ')]
 
 ## loop over level and weights
 for df in (merged, merged_subnat, merged_mosaiks):

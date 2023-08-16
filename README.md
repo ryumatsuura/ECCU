@@ -32,7 +32,7 @@ This git repository stores files that train the prediction model and predict pov
     - Input: data/raw/surveys/Barbados-Survey-of-Living-Conditions-2016/Data BSLC2016/*.dta & data/raw/surveys/Saint Lucia Census and Labor Survey/2010 Census Dataset/person_house_merged.dta
     - Output: data/int/income/brb_ed_income.pkl & data/int/income/lca_settle_income.pkl
 
-- 6_extract_weights_vector*.py:
+- 6_extract_weights_vector_*.py:
     - This script trains the prediction model and extracts the weights
 
 - 7_predict_*.py
@@ -41,3 +41,5 @@ This git repository stores files that train the prediction model and predict pov
 - 8_descriptive_stats.py
     - This script shows descriptive statistics
 
+- 9_implement_policy_simulation.py
+    - This script implements policy simulation exercises
