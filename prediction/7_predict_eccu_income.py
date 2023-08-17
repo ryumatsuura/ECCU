@@ -118,7 +118,7 @@ for col in eccu_subnat_preds.columns:
         merged = pd.merge(eccu_subnat_preds[col], df['ln_income'], left_index = True, right_index = True)
         
         ## plot prediction against true data
-        plt.clf()
+        plt.close()
         tot_min = np.min([np.min(np.array(merged[col])), np.min(np.array(merged['ln_income']))])
         tot_max = np.max([np.max(np.array(merged[col])), np.max(np.array(merged['ln_income']))])
         fig, ax = plt.subplots()
@@ -138,6 +138,25 @@ for col in eccu_subnat_preds.columns:
             ax.set_ylabel('Predicted Log Income based on Barbados')
         elif col == 'y_preds_lca' or col == 'y_preds_lca_settle':
             ax.set_ylabel('Predicted Log Income based on St. Lucia')
+        
+        if any(df.equals(y) for y in [brb_income]):
+            if clean_col == 'brb':
+                ax.set_title('BRB District-Level Income Prediction Based on BRB MOSAIKS-Level')
+            elif clean_col == 'brb_ed':
+                ax.set_title('BRB District-Level Income Prediction Based on BRB EB-Level')
+            elif clean_col == 'lca':
+                ax.set_title('BRB District-Level Income Prediction Based on LCA MOSAIKS-Level')
+            elif clean_col == 'lca_settle':
+                ax.set_title('BRB District-Level Income Prediction Based on LCA Settlement-Level')
+        if any(df.equals(y) for y in [lca_income]):
+            if clean_col == 'brb':
+                ax.set_title('LCA District-Level Income Prediction Based on BRB MOSAIKS-Level')
+            elif clean_col == 'brb_ed':
+                ax.set_title('LCA District-Level Income Prediction Based on BRB EB-Level')
+            elif clean_col == 'lca':
+                ax.set_title('LCA District-Level Income Prediction Based on LCA MOSAIKS-Level')
+            elif clean_col == 'lca_settle':
+                ax.set_title('LCA District-Level Income Prediction Based on LCA Settlement-Level')
         
         ## output the graph
         if any(df.equals(y) for y in [brb_income]):

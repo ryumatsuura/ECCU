@@ -196,7 +196,7 @@ for df in (merged, merged_subnat, merged_mosaiks):
         clean_col = col.replace('y_preds_', '')
                 
         ## plot prediction against ground truth
-        plt.clf()
+        plt.close()
         tot_min = np.min([np.min(np.array(df[col])), np.min(np.array(df['ln_pop_density']))])
         tot_max = np.max([np.max(np.array(df[col])), np.max(np.array(df['ln_pop_density']))])
         fig, ax = plt.subplots()
@@ -216,6 +216,32 @@ for df in (merged, merged_subnat, merged_mosaiks):
         ## add axis title
         ax.set_xlabel('True Population Density')
         ax.set_ylabel('Predicted Population Density')
+        
+        ## add title
+        if clean_col == 'global':
+            ax.set_title('Global-Scale Prediction')
+        elif clean_col == 'cont':
+            ax.set_title('By-Continent Prediction')
+        elif clean_col == 'cont_fixed':
+            ax.set_title('By-Continent Adjusted Prediction')
+        elif clean_col == 'brb':
+            ax.set_title('Barbados-Based Prediction')
+        elif clean_col == 'glp':
+            ax.set_title('Guadeloupe-Based Prediction')
+        elif clean_col == 'mtq':
+            ax.set_title('Martinique-Based Prediction')
+        elif clean_col == 'lca':
+            ax.set_title('St. Lucia-Based Prediction')
+        elif clean_col == 'nbr':
+            ax.set_title('Neighbors-Based Prediction')
+        elif clean_col == 'brb_ed':
+            ax.set_title('Barbados EB Prediction')
+        elif clean_col == 'lca_settle':
+            ax.set_title('St Lucia Settlement Prediction')
+        elif clean_col == 'nat':
+            ax.set_title('National-Level Prediction')
+        elif clean_col == 'subnat':
+            ax.set_title('Subnatioal-Level Prediction') 
         
         ## output the graph
         if any(df.equals(y) for y in [merged]):

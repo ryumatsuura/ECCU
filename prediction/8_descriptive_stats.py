@@ -81,7 +81,7 @@ lca_2016_merge = pd.merge(lca_2016_income, lca_pop, left_index = True, right_ind
 
 ## plot income against population
 for df in (brb_merge, lca_2010_merge, lca_2016_merge):
-    plt.clf()
+    plt.close()
     fig, ax = plt.subplots()
     ax.scatter(np.array(df['ln_pop_density']), np.array(df['ln_income']))
     xmin = np.min(np.array(df['ln_pop_density']))
@@ -90,6 +90,12 @@ for df in (brb_merge, lca_2010_merge, lca_2016_merge):
     ax.axline(xy1 = (xmin, newp0), slope = p1, color = 'r', lw = 2)
     ax.set_xlabel('Log Population Density')
     ax.set_ylabel('Log Income per Capita')
+    if any(df.equals(y) for y in [brb_merge]):
+        ax.set_title('BRB District-Level Income and Population Correlations')
+    elif any(df.equals(y) for y in [lca_2010_merge]):
+        ax.set_title('LCA District-Level Census Income and Population Correlations')
+    elif any(df.equals(y) for y in [lca_2016_merge]):
+        ax.set_title('LCA District-Level Survey Income and Population Correlations')
     stat = (f"$r$ = {np.corrcoef(df['ln_pop_density'], df['ln_income'])[0][1]:.2f}")
     bbox = dict(boxstyle = 'round', fc = 'blanchedalmond', alpha = 0.5)
     ax.text(0.95, 0.07, stat, fontsize = 12, bbox = bbox, transform = ax.transAxes, horizontalalignment = 'right')
@@ -114,7 +120,7 @@ tasks = ['hdi', 'gni', 'health', 'income', 'ed', 'iwi']
 ## plot predicted HDI values against income
 for task in tasks:
     for df in (brb_merge, lca_2010_merge, lca_2016_merge):  
-        plt.clf()
+        plt.close()
         fig, ax = plt.subplots()
         ax.scatter(np.array(df['ln_income']), np.array(df['{}_preds_subnat'.format(task)]))
         xmin = np.min(np.array(df['ln_income']))
@@ -128,6 +134,27 @@ for task in tasks:
             ax.set_ylabel('Predicted {} Index'.format(task.capitalize()))
         elif task == 'ed':
             ax.set_ylabel('Predicted Education Index')
+        if any(df.equals(y) for y in [brb_merge]):
+            if task == 'hdi' or task == 'gni' or task == 'iwi':
+                ax.set_title('BRB District-Level Predicted {} and Income Correlations'.format(task.upper()))
+            elif task == 'health' or task == 'income':
+                ax.set_title('BRB District-Level Predicted {} Index and Income Correlations'.format(task.capitalize()))
+            elif task == 'ed':
+                ax.set_title('BRB District-Level Predicted Education Index and Income Correlations')
+        elif any(df.equals(y) for y in [lca_2010_merge]):
+            if task == 'hdi' or task == 'gni' or task == 'iwi':
+                ax.set_title('LCA District-Level Predicted {} and Census Income Correlations'.format(task.upper()))
+            elif task == 'health' or task == 'income':
+                ax.set_title('LCA District-Level Predicted {} Index and Census Income Correlations'.format(task.capitalize()))
+            elif task == 'ed':
+                ax.set_title('LCA District-Level Predicted Education Index and Census Income Correlations')
+        elif any(df.equals(y) for y in [lca_2016_merge]):
+            if task == 'hdi' or task == 'gni' or task == 'iwi':
+                ax.set_title('LCA District-Level Predicted {} and Survey Income Correlations'.format(task.upper()))
+            elif task == 'health' or task == 'income':
+                ax.set_title('LCA District-Level Predicted {} Index and Survey Income Correlations'.format(task.capitalize()))
+            elif task == 'ed':
+                ax.set_title('LCA District-Level Predicted Education Index and Survey Income Correlations')
         stat = (f"$r$ = {np.corrcoef(df['ln_income'], df['{}_preds_subnat'.format(task)])[0][1]:.2f}")
         bbox = dict(boxstyle = 'round', fc = 'blanchedalmond', alpha = 0.5)
         ax.text(0.95, 0.07, stat, fontsize = 12, bbox = bbox, transform = ax.transAxes, horizontalalignment = 'right')

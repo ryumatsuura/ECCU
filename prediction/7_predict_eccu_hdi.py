@@ -186,7 +186,7 @@ for task in tasks:
             continue
         
         ## plot prediction against 
-        plt.clf()
+        plt.close()
         tot_min = np.min([np.min(np.array(merged[x])), np.min(np.array(merged[task]))])
         tot_max = np.max([np.max(np.array(merged[x])), np.max(np.array(merged[task]))])
         fig, ax = plt.subplots()
@@ -204,6 +204,11 @@ for task in tasks:
         else:
             ax.set_xlabel('True {} Index'.format(task.capitalize()))
             ax.set_ylabel('Predicted {} Index'.format(task.capitalize()))
+        
+        if (task == 'hdi') or (task == 'gni'):
+            ax.set_title('National-Level {} Prediction'.format(task.upper()))
+        else:
+            ax.set_title('National-Level {} Index Prediction'.format(task.capitalize()))
         
         ## output the graph
         if x == '{}_preds'.format(task):
@@ -295,7 +300,7 @@ merged_subnat = gpd.GeoDataFrame(pd.merge(eccu_subnat_preds, eccu_shp[['GID_0', 
 ## visualization
 for task in tasks:
     for x in ['{}_preds'.format(task), '{}_preds_subnat'.format(task), '{}_preds_subnat_demean'.format(task)]:
-        plt.clf()
+        plt.close()
         fig, ax = plt.subplots()
         eccu_shp.to_crs(epsg = 4326).plot(ax = ax, color = 'lightgrey')
         merged_subnat.plot(column = x, ax = ax, cmap = 'RdYlGn', legend = True)
