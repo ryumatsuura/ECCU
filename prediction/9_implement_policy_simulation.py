@@ -10,14 +10,11 @@ from mosaiks.utils.imports import *
 from sklearn.metrics import *
 from scipy.stats import truncnorm
 
+## set bootstrap samples
+num_bootstrap = 25
+
 ## specify outcome variables - use three different measures for income/wealth
 tasks = ['hdi', 'gni', 'income']
-
-## set different threshold
-ps = np.linspace(0, 100, 1000)
-
-## set bootstrap samples
-num_bootstrap = 1000
 
 def generate_truncated_normal(lb, ub, mean, std, size):
     samples_log = truncnorm.rvs((np.log(lb)- np.log(mean)) / std, (np.log(ub) - np.log(mean)) / std, loc = np.log(mean), scale = std, size = size)
@@ -102,147 +99,187 @@ for task in tasks:
     subnat_stats = merged_mosaiks.groupby('GID_1')['{}_preds_subnat'.format(task)].describe()
     merged_subnat = merged_subnat.merge(subnat_stats[['min', 'max']].rename(columns = {'min': '{}_preds_subnat_min'.format(task), 'max': '{}_preds_subnat_max'.format(task)}), left_index = True, right_index = True)
 
+## expand national-level data to subnational-level
+merged_nat_exp = pd.merge(merged_subnat[['Country', 'counts']], merged_nat.drop(columns = ['Country', 'counts']), left_on = 'Country', right_index = True)
+
 #############################################
 ## B) implement policy simulation exercises
 #############################################
 
 np.random.seed(1)
 
+## B-1. Use percentile
+
+## set different threshold
+ps = np.linspace(0, 100, 1000)
+
 ## Model 1: 
 ### Program eligiblity: Population in the lowest p percentile are eligible for the program
-### Model assumption: Income distribution for the entire country is log-normal and those in the lowest p percentile in each country are eligible
-
-merged_mosaiks.sort_values(by = ['Country'], inplace = True)
-
-## initialize a new dataframe
-model1_errors = pd.DataFrame([])
-
-for task in tasks:
-    
-    ## create log-normal distribution for each country
-    samples = merged_nat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
-    samples.columns = ['Country', 'lognormal_dist']
-    
-    ## convert country-level data to MOSAIKS-level data
-    samples_df = pd.DataFrame([])
-    _, idx = np.unique(merged_mosaiks.Country, return_index = True)
-    for i, country in enumerate(merged_mosaiks.Country[np.sort(idx)]):
-        samples_df = pd.concat([samples_df, pd.DataFrame({'ISO': np.full(samples[samples['Country'] == country]['lognormal_dist'].values[0].shape[0], country), 'lognormal_dist': np.hstack(samples[samples['Country'] == country]['lognormal_dist'].values[0])})])
-    
-    ## horizontally concatenate MOSAIKS-level data
-    samples_df = samples_df.set_index(merged_mosaiks.index)
-    merged_mosaiks = pd.concat([merged_mosaiks, samples_df], axis = 1)
-    assert (merged_mosaiks['Country'] == merged_mosaiks['ISO']).all()
-    
-    for p in ps:
-        
-        ## define ground-truth eligibilty
-        perc_nat = merged_mosaiks.groupby('Country').apply(calc_percentile, val_col = '{}_preds_subnat'.format(task), p = p).to_frame()
-        perc_nat.columns = ['percentile']
-        merged_mosaiks = merged_mosaiks.merge(perc_nat, left_on = 'Country', right_index = True)
-        merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= merged_mosaiks['percentile']
-        
-        ## define model eligibility
-        merged_mosaiks['model_eligible'] = merged_mosaiks['lognormal_dist'] <= merged_mosaiks['percentile']
-        
-        ## compute inclusion and exclusion errors 
-        counts = merged_mosaiks.groupby('Country').apply(calc_counts, true_col = 'prog_eligible', model_col = 'model_eligible')
-        
-        ## compute inclusion error
-        counts['inc_err'] = counts['FP'] / (counts['TN'] + counts['FP'])
-        counts['inc_err'] = counts['inc_err'].fillna(1)
-        
-        ## compute exclusion error
-        counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
-        counts['exc_err'] = counts['exc_err'].fillna(0)
-        
-        ## add task and p-th threshold 
-        counts['task'] = task
-        counts['p_threshold'] = p
-        
-        ## concatenate to dataframe
-        model1_errors = pd.concat([model1_errors, counts[['inc_err', 'exc_err', 'bootstrap', 'task', 'p_threshold']]])
-        
-        ## remove recurring columns
-        merged_mosaiks = merged_mosaiks.drop(columns = ['percentile', 'prog_eligible', 'model_eligible'])
-    
-    ## remove recurring columns
-    merged_mosaiks = merged_mosaiks.drop(columns = ['ISO', 'lognormal_dist'])
-
-"""
-    ## draw exclusion-inclusion curve for each country
-    for country in np.unique(errors.index):
-        
-        ## draw inclusion and exclusion errors
-        plt.clf()
-        plt.plot(errors[errors.index == country].inc_err, errors[errors.index == country].exc_err, label = '')
-        plt.xlabel('Inclusion error')
-        plt.ylabel('Exclusion error')
-        plt.title(country)
-        plt.savefig(os.path.join(c.out_dir, 'metrics', '{}_{}_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
-"""    
-
-
-## Model 2: 
-### Program eligibility: Population in the lowest p percentile are eligible for the program
-### Model assumption: Income distribution in each parish is log-normal and those in the lowest p percentile in each parish are eligible 
+### Model assumption: Income distribution for the each parish is log-normal and we model based on national-level summary statistics
+### Those in the lowest p percentile in each parish are eligible
 
 merged_mosaiks.sort_values(by = ['GID_1'], inplace = True)
 
 ## initialize a new dataframe
-model2_errors = pd.DataFrame([])
+model1_errors_b = pd.DataFrame([])
 
-for task in tasks:
-    
-    ## create log-normal distribution for each parish
-    samples = merged_subnat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
-    samples.columns = ['GID_1', 'lognormal_dist']
-    
-    ## convert parish-level data to MOSAIKS-level data
-    samples_df = pd.DataFrame([])
-    _, idx = np.unique(merged_mosaiks.GID_1, return_index = True)
-    for i, parish in enumerate(merged_mosaiks.GID_1[np.sort(idx)]):
-        samples_df = pd.concat([samples_df, pd.DataFrame({'Parish': np.full(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0].shape[0], parish), 'lognormal_dist': np.hstack(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0])})])
-    
-    ## horizontally concatenate MOSAIKS-level data
-    samples_df = samples_df.set_index(merged_mosaiks.index)
-    merged_mosaiks = pd.concat([merged_mosaiks, samples_df], axis = 1)
-    assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
-    
-    for p in ps:
+for b in range(num_bootstrap):
+    for task in tasks:
         
-        ## define ground-truth eligibilty
-        perc_nat = merged_mosaiks.groupby('Country').apply(calc_percentile, val_col = '{}_preds_subnat'.format(task), p = p).to_frame()
-        perc_nat.columns = ['percentile']
-        merged_mosaiks = merged_mosaiks.merge(perc_nat, left_on = 'Country', right_index = True)
-        merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= merged_mosaiks['percentile']
+        ## create log-normal distribution for each parish
+        samples = merged_nat_exp.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
+        samples.columns = ['GID_1', 'lognormal_dist']
         
-        ## define model eligibility
-        merged_mosaiks['model_eligible'] = merged_mosaiks['lognormal_dist'] <= merged_mosaiks['percentile']
+        ## convert parish-level data to MOSAIKS-level data
+        samples_df = pd.DataFrame([])
+        _, idx = np.unique(merged_mosaiks.GID_1, return_index = True)
+        for i, parish in enumerate(merged_mosaiks.GID_1[np.sort(idx)]):
+            samples_df = pd.concat([samples_df, pd.DataFrame({'Parish': np.full(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0].shape[0], parish), 'lognormal_dist': np.hstack(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0])})])
         
-        ## compute inclusion and exclusion errors 
-        counts = merged_mosaiks.groupby('Country').apply(calc_counts, true_col = 'prog_eligible', model_col = 'model_eligible')
+        ## horizontally concatenate MOSAIKS-level data
+        samples_df = samples_df.set_index(merged_mosaiks.index)
+        merged_mosaiks = pd.concat([merged_mosaiks, samples_df], axis = 1)
+        assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
         
-        ## compute inclusion error
-        counts['inc_err'] = counts['FP'] / (counts['TN'] + counts['FP'])
-        counts['inc_err'] = counts['inc_err'].fillna(1)
-        
-        ## compute exclusion error
-        counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
-        counts['exc_err'] = counts['exc_err'].fillna(0)
-        
-        ## add task and p-th threshold 
-        counts['task'] = task
-        counts['p_threshold'] = p
-        
-        ## concatenate to dataframe
-        model2_errors = pd.concat([model2_errors, counts[['inc_err', 'exc_err', 'task', 'p_threshold']]])
+        for p in ps:
+            
+            ## define ground-truth eligibilty
+            perc_nat = merged_mosaiks.groupby('Country').apply(calc_percentile, val_col = '{}_preds_subnat'.format(task), p = p).to_frame()
+            perc_nat.columns = ['percentile']
+            merged_mosaiks = merged_mosaiks.merge(perc_nat, left_on = 'Country', right_index = True)
+            merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= merged_mosaiks['percentile']
+            
+            ## define model eligibility
+            model_perc_subnat = merged_mosaiks.groupby('GID_1').apply(calc_percentile, val_col = 'lognormal_dist', p = p).to_frame()
+            model_perc_subnat.columns = ['model_percentile']
+            merged_mosaiks = merged_mosaiks.merge(model_perc_subnat, left_on = 'GID_1', right_index = True)
+            merged_mosaiks['model_eligible'] = merged_mosaiks['lognormal_dist'] <= merged_mosaiks['model_percentile']
+            
+            ## compute inclusion and exclusion errors 
+            counts = merged_mosaiks.groupby('Country').apply(calc_counts, true_col = 'prog_eligible', model_col = 'model_eligible')
+            
+            ## compute inclusion error
+            counts['inc_err'] = counts['FP'] / (counts['TN'] + counts['FP'])
+            counts['inc_err'] = counts['inc_err'].fillna(1)
+            
+            ## compute exclusion error
+            counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
+            counts['exc_err'] = counts['exc_err'].fillna(0)
+            
+            ## add task and p-th threshold 
+            counts['task'] = task
+            counts['p_threshold'] = p
+            counts['bootstrap'] = b
+            
+            ## concatenate to dataframe
+            model1_errors_b = pd.concat([model1_errors_b, counts[['inc_err', 'exc_err', 'task', 'p_threshold', 'bootstrap']]])
+            
+            ## remove recurring columns
+            merged_mosaiks = merged_mosaiks.drop(columns = ['percentile', 'prog_eligible', 'model_percentile', 'model_eligible'])
         
         ## remove recurring columns
-        merged_mosaiks = merged_mosaiks.drop(columns = ['percentile', 'prog_eligible', 'model_eligible'])
+        merged_mosaiks = merged_mosaiks.drop(columns = ['Parish', 'lognormal_dist'])
     
-    ## remove recurring columns
-    merged_mosaiks = merged_mosaiks.drop(columns = ['Parish', 'lognormal_dist'])
+    if (b + 1) % 5 == 0:
+        print(f'{b + 1} iterations completed')
+
+model1_errors_b = model1_errors_b.reset_index()
+
+## compute mean and confidence interval
+inc_err_means = model1_errors_b.groupby(['Country', 'task', 'p_threshold'])['inc_err'].mean().to_frame()
+inc_err_cis = model1_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'inc_err', p = [2.5, 97.5]).to_frame()
+inc_err_cis.columns = ['inc_err_ci']
+exc_err_means = model1_errors_b.groupby(['Country', 'task', 'p_threshold'])['exc_err'].mean().to_frame()
+exc_err_cis = model1_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'exc_err', p = [2.5, 97.5]).to_frame()
+exc_err_cis.columns = ['exc_err_ci']
+
+## merge 
+model1_errors = inc_err_means.merge(inc_err_cis, left_index = True, right_index = True).merge(exc_err_means, left_index = True, right_index = True).merge(exc_err_cis, left_index = True, right_index = True)
+model1_errors = model1_errors.reset_index().set_index('Country')
+
+## Model 2: 
+### Program eligibility: Population in the lowest p percentile are eligible for the program
+### Model assumption: Income distribution in each parish is log-normal and we model based on parish-level summary statistics
+### Those in the lowest p percentile in each parish are eligible 
+
+merged_mosaiks.sort_values(by = ['GID_1'], inplace = True)
+
+## initialize a new dataframe
+model2_errors_b = pd.DataFrame([])
+
+for b in range(num_bootstrap):
+    for task in tasks:
+        
+        ## create log-normal distribution for each parish
+        samples = merged_subnat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
+        samples.columns = ['GID_1', 'lognormal_dist']
+        
+        ## convert parish-level data to MOSAIKS-level data
+        samples_df = pd.DataFrame([])
+        _, idx = np.unique(merged_mosaiks.GID_1, return_index = True)
+        for i, parish in enumerate(merged_mosaiks.GID_1[np.sort(idx)]):
+            samples_df = pd.concat([samples_df, pd.DataFrame({'Parish': np.full(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0].shape[0], parish), 'lognormal_dist': np.hstack(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0])})])
+        
+        ## horizontally concatenate MOSAIKS-level data
+        samples_df = samples_df.set_index(merged_mosaiks.index)
+        merged_mosaiks = pd.concat([merged_mosaiks, samples_df], axis = 1)
+        assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
+        
+        for p in ps:
+            
+            ## define ground-truth eligibilty
+            perc_nat = merged_mosaiks.groupby('Country').apply(calc_percentile, val_col = '{}_preds_subnat'.format(task), p = p).to_frame()
+            perc_nat.columns = ['percentile']
+            merged_mosaiks = merged_mosaiks.merge(perc_nat, left_on = 'Country', right_index = True)
+            merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= merged_mosaiks['percentile']
+            
+            ## define model eligibility
+            model_perc_subnat = merged_mosaiks.groupby('GID_1').apply(calc_percentile, val_col = 'lognormal_dist', p = p).to_frame()
+            model_perc_subnat.columns = ['model_percentile']
+            merged_mosaiks = merged_mosaiks.merge(model_perc_subnat, left_on = 'GID_1', right_index = True)
+            merged_mosaiks['model_eligible'] = merged_mosaiks['lognormal_dist'] <= merged_mosaiks['model_percentile']
+            
+            ## compute inclusion and exclusion errors 
+            counts = merged_mosaiks.groupby('Country').apply(calc_counts, true_col = 'prog_eligible', model_col = 'model_eligible')
+            
+            ## compute inclusion error
+            counts['inc_err'] = counts['FP'] / (counts['TN'] + counts['FP'])
+            counts['inc_err'] = counts['inc_err'].fillna(1)
+            
+            ## compute exclusion error
+            counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
+            counts['exc_err'] = counts['exc_err'].fillna(0)
+            
+            ## add task and p-th threshold 
+            counts['task'] = task
+            counts['p_threshold'] = p
+            counts['bootstrap'] = b
+            
+            ## concatenate to dataframe
+            model2_errors_b = pd.concat([model2_errors_b, counts[['inc_err', 'exc_err', 'task', 'p_threshold', 'bootstrap']]])
+            
+            ## remove recurring columns
+            merged_mosaiks = merged_mosaiks.drop(columns = ['percentile', 'prog_eligible', 'model_percentile', 'model_eligible'])
+        
+        ## remove recurring columns
+        merged_mosaiks = merged_mosaiks.drop(columns = ['Parish', 'lognormal_dist'])
+    
+    if (b + 1) % 5 == 0:
+        print(f'{b + 1} iterations completed')
+
+model2_errors_b = model2_errors_b.reset_index()
+
+## compute mean and confidence interval
+inc_err_means = model2_errors_b.groupby(['Country', 'task', 'p_threshold'])['inc_err'].mean().to_frame()
+inc_err_cis = model2_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'inc_err', p = [2.5, 97.5]).to_frame()
+inc_err_cis.columns = ['inc_err_ci']
+exc_err_means = model2_errors_b.groupby(['Country', 'task', 'p_threshold'])['exc_err'].mean().to_frame()
+exc_err_cis = model2_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'exc_err', p = [2.5, 97.5]).to_frame()
+exc_err_cis.columns = ['exc_err_ci']
+
+## merge 
+model2_errors = inc_err_means.merge(inc_err_cis, left_index = True, right_index = True).merge(exc_err_means, left_index = True, right_index = True).merge(exc_err_cis, left_index = True, right_index = True)
+model2_errors = model2_errors.reset_index().set_index('Country')
 
 ## Model 3:
 ### Program eligiblity: Population in the lowest p percentile are eligible for the program
@@ -252,59 +289,81 @@ for task in tasks:
 merged_mosaiks.sort_values(by = ['GID_1'], inplace = True)
 
 ## initialize a new dataframe
-model3_errors = pd.DataFrame([])
+model3_errors_b = pd.DataFrame([])
 
-for task in tasks:
-    
-    ## create log-normal distribution for each parish
-    samples = merged_subnat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
-    samples.columns = ['GID_1', 'lognormal_dist']
-    
-    ## convert parish-level data to MOSAIKS-level data
-    samples_df = pd.DataFrame([])
-    _, idx = np.unique(merged_mosaiks.GID_1, return_index = True)
-    for i, parish in enumerate(merged_mosaiks.GID_1[np.sort(idx)]):
-        samples_df = pd.concat([samples_df, pd.DataFrame({'Parish': np.full(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0].shape[0], parish), 'lognormal_dist': np.hstack(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0])})])
-    
-    ## horizontally concatenate MOSAIKS-level data
-    samples_df = samples_df.set_index(merged_mosaiks.index)
-    merged_mosaiks = pd.concat([merged_mosaiks, samples_df], axis = 1)
-    assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
-    
-    for p in ps:
+for b in range(num_bootstrap):
+    for task in tasks:
         
-        ## define ground-truth eligibilty
-        perc_subnat = merged_mosaiks.groupby('GID_1').apply(calc_percentile, val_col = '{}_preds_subnat'.format(task), p = p).to_frame()
-        perc_subnat.columns = ['percentile']
-        merged_mosaiks = merged_mosaiks.merge(perc_subnat, left_on = 'GID_1', right_index = True)
-        merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= merged_mosaiks['percentile']
+        ## create log-normal distribution for each parish
+        samples = merged_subnat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
+        samples.columns = ['GID_1', 'lognormal_dist']
         
-        ## define model eligibility
-        merged_mosaiks['model_eligible'] = merged_mosaiks['lognormal_dist'] <= merged_mosaiks['percentile']
+        ## convert parish-level data to MOSAIKS-level data
+        samples_df = pd.DataFrame([])
+        _, idx = np.unique(merged_mosaiks.GID_1, return_index = True)
+        for i, parish in enumerate(merged_mosaiks.GID_1[np.sort(idx)]):
+            samples_df = pd.concat([samples_df, pd.DataFrame({'Parish': np.full(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0].shape[0], parish), 'lognormal_dist': np.hstack(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0])})])
         
-        ## compute inclusion and exclusion errors 
-        counts = merged_mosaiks.groupby('Country').apply(calc_counts, true_col = 'prog_eligible', model_col = 'model_eligible')
+        ## horizontally concatenate MOSAIKS-level data
+        samples_df = samples_df.set_index(merged_mosaiks.index)
+        merged_mosaiks = pd.concat([merged_mosaiks, samples_df], axis = 1)
+        assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
         
-        ## compute inclusion error
-        counts['inc_err'] = counts['FP'] / (counts['TN'] + counts['FP'])
-        counts['inc_err'] = counts['inc_err'].fillna(1)
-        
-        ## compute exclusion error
-        counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
-        counts['exc_err'] = counts['exc_err'].fillna(0)
-        
-        ## add task and p-th threshold 
-        counts['task'] = task
-        counts['p_threshold'] = p
-        
-        ## concatenate to dataframe
-        model3_errors = pd.concat([model3_errors, counts[['inc_err', 'exc_err', 'task', 'p_threshold']]])
+        for p in ps:
+            
+            ## define ground-truth eligibilty
+            perc_nat = merged_mosaiks.groupby('Country').apply(calc_percentile, val_col = '{}_preds_subnat'.format(task), p = p).to_frame()
+            perc_nat.columns = ['percentile']
+            merged_mosaiks = merged_mosaiks.merge(perc_nat, left_on = 'Country', right_index = True)
+            merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= merged_mosaiks['percentile']
+            
+            ## define model eligibility
+            model_perc_nat = merged_mosaiks.groupby('Country').apply(calc_percentile, val_col = 'lognormal_dist', p = p).to_frame()
+            model_perc_nat.columns = ['model_percentile']
+            merged_mosaiks = merged_mosaiks.merge(model_perc_nat, left_on = 'Country', right_index = True)
+            merged_mosaiks['model_eligible'] = merged_mosaiks['lognormal_dist'] <= merged_mosaiks['model_percentile']
+            
+            ## compute inclusion and exclusion errors 
+            counts = merged_mosaiks.groupby('Country').apply(calc_counts, true_col = 'prog_eligible', model_col = 'model_eligible')
+            
+            ## compute inclusion error
+            counts['inc_err'] = counts['FP'] / (counts['TN'] + counts['FP'])
+            counts['inc_err'] = counts['inc_err'].fillna(1)
+            
+            ## compute exclusion error
+            counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
+            counts['exc_err'] = counts['exc_err'].fillna(0)
+            
+            ## add task and p-th threshold 
+            counts['task'] = task
+            counts['p_threshold'] = p
+            counts['bootstrap'] = b
+            
+            ## concatenate to dataframe
+            model3_errors_b = pd.concat([model3_errors_b, counts[['inc_err', 'exc_err', 'task', 'p_threshold', 'bootstrap']]])
+            
+            ## remove recurring columns
+            merged_mosaiks = merged_mosaiks.drop(columns = ['percentile', 'prog_eligible', 'model_percentile', 'model_eligible'])
         
         ## remove recurring columns
-        merged_mosaiks = merged_mosaiks.drop(columns = ['percentile', 'prog_eligible', 'model_eligible'])
+        merged_mosaiks = merged_mosaiks.drop(columns = ['Parish', 'lognormal_dist'])
     
-    ## remove recurring columns
-    merged_mosaiks = merged_mosaiks.drop(columns = ['Parish', 'lognormal_dist'])
+    if (b + 1) % 5 == 0:
+        print(f'{b + 1} iterations completed')
+
+model3_errors_b = model3_errors_b.reset_index()
+
+## compute mean and confidence interval
+inc_err_means = model3_errors_b.groupby(['Country', 'task', 'p_threshold'])['inc_err'].mean().to_frame()
+inc_err_cis = model3_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'inc_err', p = [2.5, 97.5]).to_frame()
+inc_err_cis.columns = ['inc_err_ci']
+exc_err_means = model3_errors_b.groupby(['Country', 'task', 'p_threshold'])['exc_err'].mean().to_frame()
+exc_err_cis = model3_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'exc_err', p = [2.5, 97.5]).to_frame()
+exc_err_cis.columns = ['exc_err_ci']
+
+## merge 
+model3_errors = inc_err_means.merge(inc_err_cis, left_index = True, right_index = True).merge(exc_err_means, left_index = True, right_index = True).merge(exc_err_cis, left_index = True, right_index = True)
+model3_errors = model3_errors.reset_index().set_index('Country')
 
 ## Draw Models1-3 
 
@@ -313,7 +372,7 @@ assert sorted(model1_errors.index.unique()) == sorted(model2_errors.index.unique
 for task in tasks:
     for country in np.unique(model1_errors.index):
         
-        plt.clf()
+        plt.close()
         
         ## draw inclusino and exclusion errors from models 
         plt.plot(model1_errors[(model1_errors.index == country) & (model1_errors.task == task)].inc_err, model1_errors[(model1_errors.index == country) & (model1_errors.task == task)].exc_err, label = 'Model 1')
@@ -325,5 +384,189 @@ for task in tasks:
         plt.ylabel('Exclusion error')
         plt.title(country)
         plt.legend()
-        plt.savefig(os.path.join(c.out_dir, 'metrics', '{}_{}_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
+        plt.savefig(os.path.join(c.out_dir, 'metrics', '{}_{}_perc_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
+
+## B-2. Use absolute value
+
+## Model 1: 
+### Program eligiblity: Population whose HDI/GNI/income index are below p are eligible for the program
+### Model assumption: Income distribution for the each parish is log-normal and we model based on national-level summary statistics
+### Those with HDI/GNI/income index below p are eligible
+
+merged_mosaiks.sort_values(by = ['GID_1'], inplace = True)
+
+## initialize a new dataframe
+model1_errors_b = pd.DataFrame([])
+
+for b in range(num_bootstrap):
+    for task in tasks:
+        
+        ## create log-normal distribution for each parish
+        samples = merged_nat_exp.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
+        samples.columns = ['GID_1', 'lognormal_dist']
+        
+        ## convert parish-level data to MOSAIKS-level data
+        samples_df = pd.DataFrame([])
+        _, idx = np.unique(merged_mosaiks.GID_1, return_index = True)
+        for i, parish in enumerate(merged_mosaiks.GID_1[np.sort(idx)]):
+            samples_df = pd.concat([samples_df, pd.DataFrame({'Parish': np.full(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0].shape[0], parish), 'lognormal_dist': np.hstack(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0])})])
+        
+        ## horizontally concatenate MOSAIKS-level data
+        samples_df = samples_df.set_index(merged_mosaiks.index)
+        merged_mosaiks = pd.concat([merged_mosaiks, samples_df], axis = 1)
+        assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
+        
+        ## determine range of values to explore
+        ps = np.linspace(merged_mosaiks['lognormal_dist'].min(), merged_mosaiks['lognormal_dist'].max(), 1000)
+        
+        for i, p in enumerate(ps):
+            
+            ## define ground-truth eligibility
+            merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= p
+            
+            ## define model eligibility
+            merged_mosaiks['model_eligible'] = merged_mosaiks['lognormal_dist'] <= p
+            
+            ## compute inclusion and exclusion errors
+            counts = merged_mosaiks.groupby('Country').apply(calc_counts, true_col = 'prog_eligible', model_col = 'model_eligible')
+            
+            ## compute inclusion error
+            counts['inc_err'] = counts['FP'] / (counts['TN'] + counts['FP'])
+            counts['inc_err'] = counts['inc_err'].fillna(1)
+            
+            ## compute exclusion error
+            counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
+            counts['exc_err'] = counts['exc_err'].fillna(0)
+            
+            ## add task and p-th threshold 
+            counts['task'] = task
+            counts['p_threshold'] = i
+            counts['bootstrap'] = b
+            
+            ## concatenate to dataframe
+            model1_errors_b = pd.concat([model1_errors_b, counts[['inc_err', 'exc_err', 'task', 'p_threshold', 'bootstrap']]])
+            
+            ## remove recurring columns
+            merged_mosaiks = merged_mosaiks.drop(columns = ['prog_eligible', 'model_eligible'])
+        
+        ## remove recurring columns
+        merged_mosaiks = merged_mosaiks.drop(columns = ['Parish', 'lognormal_dist'])
+    
+    if (b + 1) % 5 == 0:
+        print(f'{b + 1} iterations completed')
+
+model1_errors_b = model1_errors_b.reset_index()
+
+## compute mean and confidence interval
+inc_err_means = model1_errors_b.groupby(['Country', 'task', 'p_threshold'])['inc_err'].mean().to_frame()
+inc_err_cis = model1_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'inc_err', p = [2.5, 97.5]).to_frame()
+inc_err_cis.columns = ['inc_err_ci']
+exc_err_means = model1_errors_b.groupby(['Country', 'task', 'p_threshold'])['exc_err'].mean().to_frame()
+exc_err_cis = model1_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'exc_err', p = [2.5, 97.5]).to_frame()
+exc_err_cis.columns = ['exc_err_ci']
+
+## merge 
+model1_errors = inc_err_means.merge(inc_err_cis, left_index = True, right_index = True).merge(exc_err_means, left_index = True, right_index = True).merge(exc_err_cis, left_index = True, right_index = True)
+model1_errors = model1_errors.reset_index().set_index('Country')
+
+## Model 2: 
+### Program eligibility: Population whose HDI/GNI/income index are below p are eligible for the program
+### Model assumption: Income distribution in each parish is log-normal and we model based on parish-level summary statistics
+### Those with HDI/GNI/income index below p are eligible 
+
+merged_mosaiks.sort_values(by = ['GID_1'], inplace = True)
+
+## initialize a new dataframe
+model2_errors_b = pd.DataFrame([])
+
+for b in range(num_bootstrap):
+    for task in tasks:
+        
+        ## create log-normal distribution for each parish
+        samples = merged_subnat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
+        samples.columns = ['GID_1', 'lognormal_dist']
+        
+        ## convert parish-level data to MOSAIKS-level data
+        samples_df = pd.DataFrame([])
+        _, idx = np.unique(merged_mosaiks.GID_1, return_index = True)
+        for i, parish in enumerate(merged_mosaiks.GID_1[np.sort(idx)]):
+            samples_df = pd.concat([samples_df, pd.DataFrame({'Parish': np.full(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0].shape[0], parish), 'lognormal_dist': np.hstack(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0])})])
+        
+        ## horizontally concatenate MOSAIKS-level data
+        samples_df = samples_df.set_index(merged_mosaiks.index)
+        merged_mosaiks = pd.concat([merged_mosaiks, samples_df], axis = 1)
+        assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
+        
+        ## determine range of values to explore
+        ps = np.linspace(merged_mosaiks['lognormal_dist'].min(), merged_mosaiks['lognormal_dist'].max(), 1000)
+        
+        for i, p in enumerate(ps):
+            
+            ## define ground-truth eligibility
+            merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= p
+            
+            ## define model eligibility
+            merged_mosaiks['model_eligible'] = merged_mosaiks['lognormal_dist'] <= p
+            
+            ## compute inclusion and exclusion errors
+            counts = merged_mosaiks.groupby('Country').apply(calc_counts, true_col = 'prog_eligible', model_col = 'model_eligible')
+            
+            ## compute inclusion error
+            counts['inc_err'] = counts['FP'] / (counts['TN'] + counts['FP'])
+            counts['inc_err'] = counts['inc_err'].fillna(1)
+            
+            ## compute exclusion error
+            counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
+            counts['exc_err'] = counts['exc_err'].fillna(0)
+            
+            ## add task and p-th threshold 
+            counts['task'] = task
+            counts['p_threshold'] = i
+            counts['bootstrap'] = b
+            
+            ## concatenate to dataframe
+            model2_errors_b = pd.concat([model2_errors_b, counts[['inc_err', 'exc_err', 'task', 'p_threshold', 'bootstrap']]])
+            
+            ## remove recurring columns
+            merged_mosaiks = merged_mosaiks.drop(columns = ['prog_eligible', 'model_eligible'])
+        
+        ## remove recurring columns
+        merged_mosaiks = merged_mosaiks.drop(columns = ['Parish', 'lognormal_dist'])
+    
+    if (b + 1) % 5 == 0:
+        print(f'{b + 1} iterations completed')
+
+model2_errors_b = model2_errors_b.reset_index()
+
+## compute mean and confidence interval
+inc_err_means = model2_errors_b.groupby(['Country', 'task', 'p_threshold'])['inc_err'].mean().to_frame()
+inc_err_cis = model2_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'inc_err', p = [2.5, 97.5]).to_frame()
+inc_err_cis.columns = ['inc_err_ci']
+exc_err_means = model2_errors_b.groupby(['Country', 'task', 'p_threshold'])['exc_err'].mean().to_frame()
+exc_err_cis = model2_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'exc_err', p = [2.5, 97.5]).to_frame()
+exc_err_cis.columns = ['exc_err_ci']
+
+## merge 
+model2_errors = inc_err_means.merge(inc_err_cis, left_index = True, right_index = True).merge(exc_err_means, left_index = True, right_index = True).merge(exc_err_cis, left_index = True, right_index = True)
+model2_errors = model2_errors.reset_index().set_index('Country')
+
+## Draw Models1-2
+
+assert sorted(model1_errors.index.unique()) == sorted(model2_errors.index.unique())
+
+for task in tasks:
+    for country in np.unique(model1_errors.index):
+        
+        plt.close()
+        
+        ## draw inclusino and exclusion errors from models 
+        plt.plot(model1_errors[(model1_errors.index == country) & (model1_errors.task == task)].inc_err, model1_errors[(model1_errors.index == country) & (model1_errors.task == task)].exc_err, label = 'Model 1')
+        plt.plot(model2_errors[(model2_errors.index == country) & (model2_errors.task == task)].inc_err, model2_errors[(model2_errors.index == country) & (model2_errors.task == task)].exc_err, label = 'Model 2')
+        
+        ## label the graph
+        plt.xlabel('Inclusion error')
+        plt.ylabel('Exclusion error')
+        plt.title(country)
+        plt.legend()
+        plt.savefig(os.path.join(c.out_dir, 'metrics', '{}_{}_abs_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
 
