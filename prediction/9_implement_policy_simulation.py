@@ -36,8 +36,8 @@ def calc_counts(group, true_col, model_col):
     return pd.Series({'TP': tp, 'TN': tn, 'FP': fp, 'FN': fn})
 
 # create folder if not exists
-if not os.path.exists(os.path.join(c.out_dir, 'metrics')):
-    os.makedirs(os.path.join(c.out_dir, 'metrics'))
+if not os.path.exists(os.path.join(c.out_dir, 'simulations')):
+    os.makedirs(os.path.join(c.out_dir, 'simulations'))
 
 #############################
 ## A) clean prediction data
@@ -102,6 +102,10 @@ for task in tasks:
 ## expand national-level data to subnational-level
 merged_nat_exp = pd.merge(merged_subnat[['Country', 'counts']], merged_nat.drop(columns = ['Country', 'counts']), left_on = 'Country', right_index = True)
 
+for task in tasks:
+    globals()[f'{task}_ps'] = np.linspace(min(merged_nat['{}_preds_subnat'.format(task)].min(), merged_subnat['{}_preds_subnat'.format(task)].min(), merged_mosaiks['{}_preds_subnat'.format(task)].min()), 
+                                          max(merged_nat['{}_preds_subnat'.format(task)].max(), merged_subnat['{}_preds_subnat'.format(task)].max(), merged_mosaiks['{}_preds_subnat'.format(task)].max()), 1000)
+
 #############################################
 ## B) implement policy simulation exercises
 #############################################
@@ -139,9 +143,27 @@ for b in range(num_bootstrap):
         assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
         
         ## determine range of values to explore
-        ps = np.linspace(merged_mosaiks['lognormal_dist'].min(), merged_mosaiks['lognormal_dist'].max(), 1000)
+        ps = globals()[f'{task}_ps']
         
-        for i, p in enumerate(ps):
+        ## plot distribution
+        if b == 0:
+            samples['Country'] = samples['GID_1'].str[:3]
+            for country in np.unique(samples.Country):
+                shp = gpd.read_file(os.path.join(c.data_dir, 'raw', 'shp', 'gadm41_{}_shp'.format(country), 'gadm41_{}_1.shp'.format(country)))
+                plt.close()
+                plt.figure(figsize = (8, 6))
+                for parish in samples[samples.Country == country].GID_1:
+                    hist = plt.hist(samples[samples.GID_1 == parish]['lognormal_dist'], bins = 10, alpha = 0.4, label = shp[shp.GID_1 == parish].NAME_1.values[0])
+                plt.axvline(x = ps[500], color = 'red', linestyle = 'solid', linewidth = 2)
+                if (task == 'hdi') or (task == 'gni'):
+                    plt.xlabel('{} Random Distribution'.format(task.upper()))
+                else:
+                    plt.xlabel('{} Index Random Distribution'.format(task.capitalize()))
+                plt.ylabel('Density')
+                plt.legend()
+                plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_model1.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
+        
+        for p in ps:
             
             ## define ground-truth eligibility
             merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= p
@@ -162,7 +184,7 @@ for b in range(num_bootstrap):
             
             ## add task and p-th threshold 
             counts['task'] = task
-            counts['p_threshold'] = i
+            counts['p_threshold'] = p
             counts['bootstrap'] = b
             
             ## concatenate to dataframe
@@ -220,9 +242,27 @@ for b in range(num_bootstrap):
         assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
         
         ## determine range of values to explore
-        ps = np.linspace(merged_mosaiks['lognormal_dist'].min(), merged_mosaiks['lognormal_dist'].max(), 1000)
+        ps = globals()[f'{task}_ps']
         
-        for i, p in enumerate(ps):
+        ## plot distribution
+        if b == 0:
+            samples['Country'] = samples['GID_1'].str[:3]
+            for country in np.unique(samples.Country):
+                shp = gpd.read_file(os.path.join(c.data_dir, 'raw', 'shp', 'gadm41_{}_shp'.format(country), 'gadm41_{}_1.shp'.format(country)))
+                plt.close()
+                plt.figure(figsize = (8, 6))
+                for parish in samples[samples.Country == country].GID_1:
+                    hist = plt.hist(samples[samples.GID_1 == parish]['lognormal_dist'], bins = 10, alpha = 0.4, label = shp[shp.GID_1 == parish].NAME_1.values[0])
+                plt.axvline(x = ps[500], color = 'red', linestyle = 'solid', linewidth = 2)
+                if (task == 'hdi') or (task == 'gni'):
+                    plt.xlabel('{} Random Distribution'.format(task.upper()))
+                else:
+                    plt.xlabel('{} Index Random Distribution'.format(task.capitalize()))
+                plt.ylabel('Density')
+                plt.legend()
+                plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_model2.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
+        
+        for p in ps:
             
             ## define ground-truth eligibility
             merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= p
@@ -243,7 +283,7 @@ for b in range(num_bootstrap):
             
             ## add task and p-th threshold 
             counts['task'] = task
-            counts['p_threshold'] = i
+            counts['p_threshold'] = p
             counts['bootstrap'] = b
             
             ## concatenate to dataframe
@@ -290,7 +330,7 @@ for task in tasks:
         plt.ylabel('Exclusion error')
         plt.title(country)
         plt.legend()
-        plt.savefig(os.path.join(c.out_dir, 'metrics', '{}_{}_abs_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
+        plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_abs_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
 
 
 ## B-2. Use percentile
@@ -325,6 +365,24 @@ for b in range(num_bootstrap):
         samples_df = samples_df.set_index(merged_mosaiks.index)
         merged_mosaiks = pd.concat([merged_mosaiks, samples_df], axis = 1)
         assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
+        
+        ## plot distribution
+        if b == 0:
+            samples['Country'] = samples['GID_1'].str[:3]
+            for country in np.unique(samples.Country):
+                shp = gpd.read_file(os.path.join(c.data_dir, 'raw', 'shp', 'gadm41_{}_shp'.format(country), 'gadm41_{}_1.shp'.format(country)))
+                plt.close()
+                plt.figure(figsize = (8, 6))
+                for parish in samples[samples.Country == country].GID_1:
+                    hist = plt.hist(samples[samples.GID_1 == parish]['lognormal_dist'], bins = 10, alpha = 0.4, label = shp[shp.GID_1 == parish].NAME_1.values[0])
+                    plt.axvline(x = np.percentile(merged_mosaiks[merged_mosaiks.GID_1 == parish]['lognormal_dist'], ps[500]), color = hist[2][0].get_facecolor(), linestyle = 'dashed', linewidth = 2)
+                if (task == 'hdi') or (task == 'gni'):
+                    plt.xlabel('{} Random Distribution'.format(task.upper()))
+                else:
+                    plt.xlabel('{} Index Random Distribution'.format(task.capitalize()))
+                plt.ylabel('Density')
+                plt.legend()
+                plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_model3.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
         
         for p in ps:
             
@@ -410,6 +468,24 @@ for b in range(num_bootstrap):
         merged_mosaiks = pd.concat([merged_mosaiks, samples_df], axis = 1)
         assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
         
+        ## plot distribution - THIS IS WRONG = NEED TO DRAW SEPARATE P
+        if b == 0:
+            samples['Country'] = samples['GID_1'].str[:3]
+            for country in np.unique(samples.Country):
+                shp = gpd.read_file(os.path.join(c.data_dir, 'raw', 'shp', 'gadm41_{}_shp'.format(country), 'gadm41_{}_1.shp'.format(country)))
+                plt.close()
+                plt.figure(figsize = (8, 6))
+                for parish in samples[samples.Country == country].GID_1:
+                    hist = plt.hist(samples[samples.GID_1 == parish]['lognormal_dist'], bins = 10, alpha = 0.4, label = shp[shp.GID_1 == parish].NAME_1.values[0])
+                plt.axvline(x = np.percentile(merged_mosaiks[merged_mosaiks.Country == country]['lognormal_dist'], ps[500]), color = 'red', linestyle = 'solid', linewidth = 2)
+                if (task == 'hdi') or (task == 'gni'):
+                    plt.xlabel('{} Random Distribution'.format(task.upper()))
+                else:
+                    plt.xlabel('{} Index Random Distribution'.format(task.capitalize()))
+                plt.ylabel('Density')
+                plt.legend()
+                plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_model4.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
+        
         for p in ps:
             
             ## define ground-truth eligibilty
@@ -484,5 +560,5 @@ for task in tasks:
         plt.ylabel('Exclusion error')
         plt.title(country)
         plt.legend()
-        plt.savefig(os.path.join(c.out_dir, 'metrics', '{}_{}_perc_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
+        plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_perc_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
 
