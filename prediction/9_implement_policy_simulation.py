@@ -35,6 +35,11 @@ def calc_counts(group, true_col, model_col):
     fn = ((group[true_col] == True) & (group[model_col] == False)).sum()
     return pd.Series({'TP': tp, 'TN': tn, 'FP': fp, 'FN': fn})
 
+def replace_false_with_true(group):
+    if group.any() and not group.all():
+        group[group == False] = True
+    return group
+
 # create folder if not exists
 if not os.path.exists(os.path.join(c.out_dir, 'simulations')):
     os.makedirs(os.path.join(c.out_dir, 'simulations'))
@@ -44,9 +49,9 @@ if not os.path.exists(os.path.join(c.out_dir, 'simulations')):
 #############################
 
 ## load subnational and MOSAIKS level prediction values
-eccu_nat_preds = pd.read_pickle(os.path.join(c.out_dir, 'hdi', 'eccu_nat_hdi_preds.pkl'))
-eccu_subnat_preds = pd.read_pickle(os.path.join(c.out_dir, 'hdi', 'eccu_subnat_hdi_preds.pkl'))
-eccu_mosaiks_preds = pd.read_pickle(os.path.join(c.out_dir, 'hdi', 'eccu_mosaiks_hdi_preds.pkl'))
+eccu_nat_preds = pd.read_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'eccu_nat_hdi_preds.pkl'))
+eccu_subnat_preds = pd.read_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'eccu_subnat_hdi_preds.pkl'))
+eccu_mosaiks_preds = pd.read_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'eccu_mosaiks_hdi_preds.pkl'))
 eccu_subnat_key = pd.read_pickle(os.path.join(c.data_dir, 'int', 'keys', 'eccu_subnat_mosaiks_key.pkl'))
 
 ## load population data and append
@@ -106,11 +111,9 @@ for task in tasks:
     globals()[f'{task}_ps'] = np.linspace(min(merged_nat['{}_preds_subnat'.format(task)].min(), merged_subnat['{}_preds_subnat'.format(task)].min(), merged_mosaiks['{}_preds_subnat'.format(task)].min()), 
                                           max(merged_nat['{}_preds_subnat'.format(task)].max(), merged_subnat['{}_preds_subnat'.format(task)].max(), merged_mosaiks['{}_preds_subnat'.format(task)].max()), 1000)
 
-#############################################
-## B) implement policy simulation exercises
-#############################################
-
-np.random.seed(1)
+##########################################################
+## B) implement policy simulation - geographic targeting
+##########################################################
 
 ## B-1. Use absolute value
 
@@ -126,6 +129,8 @@ model1_errors_b = pd.DataFrame([])
 
 for b in range(num_bootstrap):
     for task in tasks:
+        
+        np.random.seed(1)
         
         ## create log-normal distribution for each parish
         samples = merged_nat_exp.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
@@ -151,16 +156,17 @@ for b in range(num_bootstrap):
             for country in np.unique(samples.Country):
                 shp = gpd.read_file(os.path.join(c.data_dir, 'raw', 'shp', 'gadm41_{}_shp'.format(country), 'gadm41_{}_1.shp'.format(country)))
                 plt.close()
-                plt.figure(figsize = (8, 6))
+                _ = plt.figure(figsize = (8, 6))
                 for parish in samples[samples.Country == country].GID_1:
                     hist = plt.hist(samples[samples.GID_1 == parish]['lognormal_dist'], bins = 10, alpha = 0.4, label = shp[shp.GID_1 == parish].NAME_1.values[0])
-                plt.axvline(x = ps[500], color = 'red', linestyle = 'solid', linewidth = 2)
+                _ = plt.axvline(x = ps[500], color = 'red', linestyle = 'solid', linewidth = 2)
                 if (task == 'hdi') or (task == 'gni'):
-                    plt.xlabel('{} Random Distribution'.format(task.upper()))
+                    _ = plt.xlabel('{} Random Distribution'.format(task.upper()))
                 else:
-                    plt.xlabel('{} Index Random Distribution'.format(task.capitalize()))
-                plt.ylabel('Density')
-                plt.legend()
+                    _ = plt.xlabel('{} Index Random Distribution'.format(task.capitalize()))
+                _ = plt.ylabel('Frequency')
+                _ = plt.title(country)
+                _ = plt.legend()
                 plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_model1.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
         
         for p in ps:
@@ -180,7 +186,7 @@ for b in range(num_bootstrap):
             
             ## compute exclusion error
             counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
-            counts['exc_err'] = counts['exc_err'].fillna(0)
+            counts['exc_err'] = counts['exc_err'].fillna(1)
             
             ## add task and p-th threshold 
             counts['task'] = task
@@ -226,6 +232,8 @@ model2_errors_b = pd.DataFrame([])
 for b in range(num_bootstrap):
     for task in tasks:
         
+        np.random.seed(1)
+        
         ## create log-normal distribution for each parish
         samples = merged_subnat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
         samples.columns = ['GID_1', 'lognormal_dist']
@@ -250,16 +258,17 @@ for b in range(num_bootstrap):
             for country in np.unique(samples.Country):
                 shp = gpd.read_file(os.path.join(c.data_dir, 'raw', 'shp', 'gadm41_{}_shp'.format(country), 'gadm41_{}_1.shp'.format(country)))
                 plt.close()
-                plt.figure(figsize = (8, 6))
+                _ = plt.figure(figsize = (8, 6))
                 for parish in samples[samples.Country == country].GID_1:
                     hist = plt.hist(samples[samples.GID_1 == parish]['lognormal_dist'], bins = 10, alpha = 0.4, label = shp[shp.GID_1 == parish].NAME_1.values[0])
-                plt.axvline(x = ps[500], color = 'red', linestyle = 'solid', linewidth = 2)
+                _ = plt.axvline(x = ps[500], color = 'red', linestyle = 'solid', linewidth = 2)
                 if (task == 'hdi') or (task == 'gni'):
-                    plt.xlabel('{} Random Distribution'.format(task.upper()))
+                    _ = plt.xlabel('{} Random Distribution'.format(task.upper()))
                 else:
-                    plt.xlabel('{} Index Random Distribution'.format(task.capitalize()))
-                plt.ylabel('Density')
-                plt.legend()
+                    _ = plt.xlabel('{} Index Random Distribution'.format(task.capitalize()))
+                _ = plt.ylabel('Frequency')
+                _ = plt.title(country)
+                _ = plt.legend()
                 plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_model2.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
         
         for p in ps:
@@ -279,7 +288,7 @@ for b in range(num_bootstrap):
             
             ## compute exclusion error
             counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
-            counts['exc_err'] = counts['exc_err'].fillna(0)
+            counts['exc_err'] = counts['exc_err'].fillna(1)
             
             ## add task and p-th threshold 
             counts['task'] = task
@@ -322,14 +331,14 @@ for task in tasks:
         plt.close()
         
         ## draw inclusino and exclusion errors from models 
-        plt.plot(model1_errors[(model1_errors.index == country) & (model1_errors.task == task)].inc_err, model1_errors[(model1_errors.index == country) & (model1_errors.task == task)].exc_err, label = 'Model 1')
-        plt.plot(model2_errors[(model2_errors.index == country) & (model2_errors.task == task)].inc_err, model2_errors[(model2_errors.index == country) & (model2_errors.task == task)].exc_err, label = 'Model 2')
+        _ = plt.plot(model1_errors[(model1_errors.index == country) & (model1_errors.task == task)].inc_err, model1_errors[(model1_errors.index == country) & (model1_errors.task == task)].exc_err, label = 'Model 1')
+        _ = plt.plot(model2_errors[(model2_errors.index == country) & (model2_errors.task == task)].inc_err, model2_errors[(model2_errors.index == country) & (model2_errors.task == task)].exc_err, label = 'Model 2')
         
         ## label the graph
-        plt.xlabel('Inclusion error')
-        plt.ylabel('Exclusion error')
-        plt.title(country)
-        plt.legend()
+        _ = plt.xlabel('Inclusion error')
+        _ = plt.ylabel('Exclusion error')
+        _ = plt.title(country)
+        _ = plt.legend()
         plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_abs_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
 
 
@@ -350,6 +359,8 @@ model3_errors_b = pd.DataFrame([])
 
 for b in range(num_bootstrap):
     for task in tasks:
+        
+        np.random.seed(1)
         
         ## create log-normal distribution for each parish
         samples = merged_subnat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
@@ -372,16 +383,17 @@ for b in range(num_bootstrap):
             for country in np.unique(samples.Country):
                 shp = gpd.read_file(os.path.join(c.data_dir, 'raw', 'shp', 'gadm41_{}_shp'.format(country), 'gadm41_{}_1.shp'.format(country)))
                 plt.close()
-                plt.figure(figsize = (8, 6))
+                _ = plt.figure(figsize = (8, 6))
                 for parish in samples[samples.Country == country].GID_1:
                     hist = plt.hist(samples[samples.GID_1 == parish]['lognormal_dist'], bins = 10, alpha = 0.4, label = shp[shp.GID_1 == parish].NAME_1.values[0])
-                    plt.axvline(x = np.percentile(merged_mosaiks[merged_mosaiks.GID_1 == parish]['lognormal_dist'], ps[500]), color = hist[2][0].get_facecolor(), linestyle = 'dashed', linewidth = 2)
+                    _ = plt.axvline(x = np.percentile(merged_mosaiks[merged_mosaiks.GID_1 == parish]['lognormal_dist'], ps[500]), color = hist[2][0].get_facecolor(), linestyle = 'dashed', linewidth = 2)
                 if (task == 'hdi') or (task == 'gni'):
-                    plt.xlabel('{} Random Distribution'.format(task.upper()))
+                    _ = plt.xlabel('{} Random Distribution'.format(task.upper()))
                 else:
-                    plt.xlabel('{} Index Random Distribution'.format(task.capitalize()))
-                plt.ylabel('Density')
-                plt.legend()
+                    _ = plt.xlabel('{} Index Random Distribution'.format(task.capitalize()))
+                _ = plt.ylabel('Frequency')
+                _ = plt.title(country)
+                _ = plt.legend()
                 plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_model3.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
         
         for p in ps:
@@ -407,7 +419,7 @@ for b in range(num_bootstrap):
             
             ## compute exclusion error
             counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
-            counts['exc_err'] = counts['exc_err'].fillna(0)
+            counts['exc_err'] = counts['exc_err'].fillna(1)
             
             ## add task and p-th threshold 
             counts['task'] = task
@@ -453,6 +465,8 @@ model4_errors_b = pd.DataFrame([])
 for b in range(num_bootstrap):
     for task in tasks:
         
+        np.random.seed(1)
+        
         ## create log-normal distribution for each parish
         samples = merged_subnat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
         samples.columns = ['GID_1', 'lognormal_dist']
@@ -474,16 +488,17 @@ for b in range(num_bootstrap):
             for country in np.unique(samples.Country):
                 shp = gpd.read_file(os.path.join(c.data_dir, 'raw', 'shp', 'gadm41_{}_shp'.format(country), 'gadm41_{}_1.shp'.format(country)))
                 plt.close()
-                plt.figure(figsize = (8, 6))
+                _ = plt.figure(figsize = (8, 6))
                 for parish in samples[samples.Country == country].GID_1:
                     hist = plt.hist(samples[samples.GID_1 == parish]['lognormal_dist'], bins = 10, alpha = 0.4, label = shp[shp.GID_1 == parish].NAME_1.values[0])
-                plt.axvline(x = np.percentile(merged_mosaiks[merged_mosaiks.Country == country]['lognormal_dist'], ps[500]), color = 'red', linestyle = 'solid', linewidth = 2)
+                _ = plt.axvline(x = np.percentile(merged_mosaiks[merged_mosaiks.Country == country]['lognormal_dist'], ps[500]), color = 'red', linestyle = 'solid', linewidth = 2)
                 if (task == 'hdi') or (task == 'gni'):
-                    plt.xlabel('{} Random Distribution'.format(task.upper()))
+                    _ = plt.xlabel('{} Random Distribution'.format(task.upper()))
                 else:
-                    plt.xlabel('{} Index Random Distribution'.format(task.capitalize()))
-                plt.ylabel('Density')
-                plt.legend()
+                    _ = plt.xlabel('{} Index Random Distribution'.format(task.capitalize()))
+                _ = plt.ylabel('Frequency')
+                _ = plt.title(country)
+                _ = plt.legend()
                 plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_model4.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
         
         for p in ps:
@@ -509,7 +524,7 @@ for b in range(num_bootstrap):
             
             ## compute exclusion error
             counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
-            counts['exc_err'] = counts['exc_err'].fillna(0)
+            counts['exc_err'] = counts['exc_err'].fillna(1)
             
             ## add task and p-th threshold 
             counts['task'] = task
@@ -552,13 +567,50 @@ for task in tasks:
         plt.close()
         
         ## draw inclusino and exclusion errors from models 
-        plt.plot(model3_errors[(model3_errors.index == country) & (model3_errors.task == task)].inc_err, model3_errors[(model3_errors.index == country) & (model3_errors.task == task)].exc_err, label = 'Model 3')
-        plt.plot(model4_errors[(model4_errors.index == country) & (model4_errors.task == task)].inc_err, model4_errors[(model4_errors.index == country) & (model4_errors.task == task)].exc_err, label = 'Model 4')
+        _ = plt.plot(model3_errors[(model3_errors.index == country) & (model3_errors.task == task)].inc_err, model3_errors[(model3_errors.index == country) & (model3_errors.task == task)].exc_err, label = 'Model 3')
+        _ = plt.plot(model4_errors[(model4_errors.index == country) & (model4_errors.task == task)].inc_err, model4_errors[(model4_errors.index == country) & (model4_errors.task == task)].exc_err, label = 'Model 4')
         
         ## label the graph
-        plt.xlabel('Inclusion error')
-        plt.ylabel('Exclusion error')
-        plt.title(country)
-        plt.legend()
+        _ = plt.xlabel('Inclusion error')
+        _ = plt.ylabel('Exclusion error')
+        _ = plt.title(country)
+        _ = plt.legend()
         plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_perc_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
 
+########################################################################
+## C) implement poilcy simulation - categorical + geographic targeting
+########################################################################
+
+## C-1. Use only categorical value
+
+## Model 5: 
+### Program eligibility: Households without income
+### Model assumption: Households without 
+
+## load LCA data
+lfs_2016 = pd.read_stata(os.path.join(c.data_dir, 'raw', 'surveys', 'Saint Lucia Census and Labor Survey', 'LFS', 'LCA_2016.dta'))
+
+## create indicator for no income and compute how many people in each household have zero income
+lfs_2016['no_income'] = (lfs_2016['income'] == 0)
+lfs_2016 = lfs_2016.merge(lfs_2016.groupby(['district', 'ed', 'hhno', 'yr', 'mth'])['no_income'].sum().to_frame().rename(columns = {'no_income': 'hh_no_income'}), left_on = ['district', 'ed', 'hhno', 'yr', 'mth'], right_index = True)
+
+## indicate which households have zero total income
+lfs_2016['zero_income'] = lfs_2016['hh_no_income'] == lfs_2016['persons']
+
+## indicate which households have unemployed head
+lfs_2016['unemployed_head'] = (lfs_2016['p2'] == 'Head') & (lfs_2016['unemp'] == 'Unemployed') 
+lfs_2016['unemployed_head'] = lfs_2016.groupby(['district', 'ed', 'hhno', 'yr', 'mth'])['unemployed_head'].transform(replace_false_with_true)
+
+## keep households level variables and collapse down to HH level
+lfs_hh_2016 = lfs_2016[['district', 'ed', 'hhno', 'yr', 'mth', 'zero_income', 'unemployed_head']].drop_duplicates()
+
+## compute inclusion and exclusion errors
+counts = calc_counts(lfs_hh_2016, true_col = 'zero_income', model_col = 'unemployed_head')
+
+## compute inclusion error
+counts['inc_err'] = counts['FP'] / (counts['TN'] + counts['FP'])
+##counts['inc_err'] = counts['inc_err'].fillna(1)
+            
+## compute exclusion error
+counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
+##counts['exc_err'] = counts['exc_err'].fillna(0)

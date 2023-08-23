@@ -162,9 +162,9 @@ for df in (X, X_subnat, X_mosaiks):
                 eccu_mosaiks_preds = pd.DataFrame([], index = df.index)
             eccu_mosaiks_preds['y_preds_{}'.format(name.replace('wts_', ''))] = ypreds.tolist()
 
-eccu_preds.to_pickle(os.path.join(c.out_dir, 'population', 'eccu_nat_population_preds.pkl'))
-eccu_subnat_preds.to_pickle(os.path.join(c.out_dir, 'population', 'eccu_subnat_population_preds.pkl'))
-eccu_mosaiks_preds.to_pickle(os.path.join(c.out_dir, 'population', 'eccu_mosaiks_population_preds.pkl'))
+eccu_preds.to_pickle(os.path.join(c.data_dir, 'int', 'population', 'eccu_nat_population_preds.pkl'))
+eccu_subnat_preds.to_pickle(os.path.join(c.data_dir, 'int', 'population', 'eccu_subnat_population_preds.pkl'))
+eccu_mosaiks_preds.to_pickle(os.path.join(c.data_dir, 'int', 'population', 'eccu_mosaiks_population_preds.pkl'))
 
 ###############################
 ## B) clean ground truth data 
@@ -201,47 +201,38 @@ for df in (merged, merged_subnat, merged_mosaiks):
         tot_max = np.max([np.max(np.array(df[col])), np.max(np.array(df['ln_pop_density']))])
         fig, ax = plt.subplots()
         if any(df.equals(y) for y in [merged]):
-            ax.scatter(np.array(df['ln_pop_density']), np.array(df[col]))
+            _ = ax.scatter(np.array(df['ln_pop_density']), np.array(df[col]))
         else:
             c_labels, c_indices = np.unique(df['Country'], return_inverse = True)
             sc = ax.scatter(np.array(df['ln_pop_density']), np.array(df[col]), c = c_indices)
-            ax.legend(sc.legend_elements()[0], c_labels)
+            _ = ax.legend(sc.legend_elements()[0], c_labels)
         
         ## add 45 degree line and country names
-        plt.plot([tot_min, tot_max], [tot_min, tot_max], color = 'black', linewidth = 2)
+        _ = plt.plot([tot_min, tot_max], [tot_min, tot_max], color = 'black', linewidth = 2)
         if any(df.equals(y) for y in [merged]):
             for i, txt in enumerate(np.array(df['Country'])):
-                ax.annotate(txt, (np.array(df['ln_pop_density'])[i], np.array(df[col])[i]))
+                _ = ax.annotate(txt, (np.array(df['ln_pop_density'])[i], np.array(df[col])[i]))
         
         ## add axis title
-        ax.set_xlabel('True Population Density')
-        ax.set_ylabel('Predicted Population Density')
+        _ = ax.set_xlabel('True Population Density')
+        _ = ax.set_ylabel('Predicted Population Density')
         
         ## add title
-        if clean_col == 'global':
-            ax.set_title('Global-Scale Prediction')
-        elif clean_col == 'cont':
-            ax.set_title('By-Continent Prediction')
-        elif clean_col == 'cont_fixed':
-            ax.set_title('By-Continent Adjusted Prediction')
-        elif clean_col == 'brb':
-            ax.set_title('Barbados-Based Prediction')
-        elif clean_col == 'glp':
-            ax.set_title('Guadeloupe-Based Prediction')
-        elif clean_col == 'mtq':
-            ax.set_title('Martinique-Based Prediction')
-        elif clean_col == 'lca':
-            ax.set_title('St. Lucia-Based Prediction')
-        elif clean_col == 'nbr':
-            ax.set_title('Neighbors-Based Prediction')
-        elif clean_col == 'brb_ed':
-            ax.set_title('Barbados EB Prediction')
-        elif clean_col == 'lca_settle':
-            ax.set_title('St Lucia Settlement Prediction')
-        elif clean_col == 'nat':
-            ax.set_title('National-Level Prediction')
-        elif clean_col == 'subnat':
-            ax.set_title('Subnatioal-Level Prediction') 
+        if any(df.equals(y) for y in [merged]):
+            _ = ax.set_title('National-Level Prediction')
+        if any(df.equals(y) for y in [merged_subnat]):
+            _ = ax.set_title('Subnational-Level Prediction')
+        if any(df.equals(y) for y in [merged_mosaiks]):
+            _ = ax.set_title('MOSAIKS-Level Prediction')
+        
+        ## compute R-square from linear regression model
+        model = LinearRegression().fit(df[['ln_pop_density']], df[[col]])
+        globals()[f'r2_score_{clean_col}'] = model.score(df[['ln_pop_density']], df[[col]])
+        
+        ## add R-square to the graph
+        stat = (f"$r$ = {globals()[f'r2_score_{clean_col}']:.2f}")
+        bbox = dict(boxstyle = 'round', fc = 'blanchedalmond', alpha = 0.5)
+        _ = ax.text(0.95, 0.07, stat, fontsize = 12, bbox = bbox, transform = ax.transAxes, horizontalalignment = 'right')        
         
         ## output the graph
         if any(df.equals(y) for y in [merged]):
@@ -250,10 +241,6 @@ for df in (merged, merged_subnat, merged_mosaiks):
             fig.savefig(os.path.join(c.out_dir, 'population', 'eccu_subnat_population_{}.png'.format(clean_col)), bbox_inches = 'tight', pad_inches = 0.1)
         elif any(df.equals(y) for y in [merged_mosaiks]):
             fig.savefig(os.path.join(c.out_dir, 'population', 'eccu_mosaiks_population_{}.png'.format(clean_col)), bbox_inches = 'tight', pad_inches = 0.1)
-        
-        ## compute R-square from linear regression model
-        model = LinearRegression().fit(df[['ln_pop_density']], df[[col]])
-        globals()[f'r2_score_{clean_col}'] = model.score(df[['ln_pop_density']], df[[col]])
     
     ## store MSE, MAE, R2
     rows = [

@@ -164,9 +164,9 @@ for task in tasks:
                 elif np.array_equiv(w, wts_subnat_demean):
                     eccu_mosaiks_preds['{}_preds_subnat_demean'.format(task)] = ypreds.tolist()
 
-eccu_preds.to_pickle(os.path.join(c.out_dir, 'hdi', 'eccu_nat_hdi_preds.pkl'))
-eccu_subnat_preds.to_pickle(os.path.join(c.out_dir, 'hdi', 'eccu_subnat_hdi_preds.pkl'))
-eccu_mosaiks_preds.to_pickle(os.path.join(c.out_dir, 'hdi', 'eccu_mosaiks_hdi_preds.pkl'))
+eccu_preds.to_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'eccu_nat_hdi_preds.pkl'))
+eccu_subnat_preds.to_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'eccu_subnat_hdi_preds.pkl'))
+eccu_mosaiks_preds.to_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'eccu_mosaiks_hdi_preds.pkl'))
 
 ###############################
 ## B) clean ground truth data 
@@ -190,31 +190,25 @@ for task in tasks:
         tot_min = np.min([np.min(np.array(merged[x])), np.min(np.array(merged[task]))])
         tot_max = np.max([np.max(np.array(merged[x])), np.max(np.array(merged[task]))])
         fig, ax = plt.subplots()
-        ax.scatter(np.array(merged[task]), np.array(merged[x]))
+        _ = ax.scatter(np.array(merged[task]), np.array(merged[x]))
         
         ## add 45 degree line and country names
-        plt.plot([tot_min, tot_max], [tot_min, tot_max], color = 'black', linewidth = 2)
+        _ = plt.plot([tot_min, tot_max], [tot_min, tot_max], color = 'black', linewidth = 2)
         for i, txt in enumerate(np.array(merged.index)):
-            ax.annotate(txt, (np.array(merged[task])[i], np.array(merged[x])[i]))
+            _ = ax.annotate(txt, (np.array(merged[task])[i], np.array(merged[x])[i]))
         
         ## add axis title
         if (task == 'hdi') or (task == 'gni'):
-            ax.set_xlabel('True {}'.format(task.upper()))
-            ax.set_ylabel('Predicted {}'.format(task.upper()))
+            _ = ax.set_xlabel('True {}'.format(task.upper()))
+            _ = ax.set_ylabel('Predicted {}'.format(task.upper()))
         else:
-            ax.set_xlabel('True {} Index'.format(task.capitalize()))
-            ax.set_ylabel('Predicted {} Index'.format(task.capitalize()))
+            _ = ax.set_xlabel('True {} Index'.format(task.capitalize()))
+            _ = ax.set_ylabel('Predicted {} Index'.format(task.capitalize()))
         
         if (task == 'hdi') or (task == 'gni'):
-            ax.set_title('National-Level {} Prediction'.format(task.upper()))
+            _ = ax.set_title('National-Level {} Prediction'.format(task.upper()))
         else:
-            ax.set_title('National-Level {} Index Prediction'.format(task.capitalize()))
-        
-        ## output the graph
-        if x == '{}_preds'.format(task):
-            fig.savefig(os.path.join(c.out_dir, 'hdi', 'eccu_nat_{}_nat.png'.format(task)), bbox_inches = 'tight', pad_inches = 0.1)
-        elif x == '{}_preds_subnat'.format(task):
-            fig.savefig(os.path.join(c.out_dir, 'hdi', 'eccu_nat_{}_subnat.png'.format(task)), bbox_inches = 'tight', pad_inches = 0.1)
+            _ = ax.set_title('National-Level {} Index Prediction'.format(task.capitalize()))
         
         ## compute R-square from linear regression model
         model = LinearRegression().fit(merged[[task]], merged[[x]])
@@ -222,6 +216,20 @@ for task in tasks:
             globals()[f'r2_score_{task}'] = model.score(merged[[task]], merged[[x]])
         elif x == '{}_preds_subnat'.format(task):
             globals()[f'r2_score_{task}_subnat'] = model.score(merged[[task]], merged[[x]])
+        
+        ## add R-square to the graph
+        if x == '{}_preds'.format(task):
+            stat = (f"$r$ = {globals()[f'r2_score_{task}']:.2f}")
+        elif x == '{}_preds_subnat'.format(task):
+            stat = (f"$r$ = {globals()[f'r2_score_{task}_subnat']:.2f}")
+        bbox = dict(boxstyle = 'round', fc = 'blanchedalmond', alpha = 0.5)
+        _ = ax.text(0.95, 0.07, stat, fontsize = 12, bbox = bbox, transform = ax.transAxes, horizontalalignment = 'right')
+        
+        ## output the graph
+        if x == '{}_preds'.format(task):
+            fig.savefig(os.path.join(c.out_dir, 'hdi', 'eccu_nat_{}_nat.png'.format(task)), bbox_inches = 'tight', pad_inches = 0.1)
+        elif x == '{}_preds_subnat'.format(task):
+            fig.savefig(os.path.join(c.out_dir, 'hdi', 'eccu_nat_{}_subnat.png'.format(task)), bbox_inches = 'tight', pad_inches = 0.1)
 
 ## store MSE, MAE, R2
 rows = [
@@ -302,9 +310,9 @@ for task in tasks:
     for x in ['{}_preds'.format(task), '{}_preds_subnat'.format(task), '{}_preds_subnat_demean'.format(task)]:
         plt.close()
         fig, ax = plt.subplots()
-        eccu_shp.to_crs(epsg = 4326).plot(ax = ax, color = 'lightgrey')
-        merged_subnat.plot(column = x, ax = ax, cmap = 'RdYlGn', legend = True)
-        fig.set_size_inches(30, 15, forward = True)
+        _ = eccu_shp.to_crs(epsg = 4326).plot(ax = ax, color = 'lightgrey')
+        _ = merged_subnat.plot(column = x, ax = ax, cmap = 'RdYlGn', legend = True)
+        _ = fig.set_size_inches(30, 15, forward = True)
         if x == '{}_preds'.format(task):
             fig.savefig(os.path.join(c.out_dir, 'hdi', 'eccu_subnat_{}_nat.png'.format(task)), bbox_inches = 'tight', pad_inches = 0.1)
         elif x == '{}_preds_subnat'.format(task):

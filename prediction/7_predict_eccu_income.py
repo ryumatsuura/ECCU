@@ -97,9 +97,9 @@ for df in (X, X_subnat, X_mosaiks):
                 eccu_mosaiks_preds = pd.DataFrame([], index = df.index)
             eccu_mosaiks_preds['y_preds_{}'.format(name.replace('wts_', ''))] = ypreds.tolist()
 
-eccu_preds.to_pickle(os.path.join(c.out_dir, 'income', 'eccu_nat_income_preds.pkl'))
-eccu_subnat_preds.to_pickle(os.path.join(c.out_dir, 'income', 'eccu_subnat_income_preds.pkl'))
-eccu_mosaiks_preds.to_pickle(os.path.join(c.out_dir, 'income', 'eccu_mosaiks_income_preds.pkl'))
+eccu_preds.to_pickle(os.path.join(c.data_dir, 'int', 'income', 'eccu_nat_income_preds.pkl'))
+eccu_subnat_preds.to_pickle(os.path.join(c.data_dir, 'int', 'income', 'eccu_subnat_income_preds.pkl'))
+eccu_mosaiks_preds.to_pickle(os.path.join(c.data_dir, 'int', 'income', 'eccu_mosaiks_income_preds.pkl'))
 
 ###############################
 ## B) clean ground truth data 
@@ -122,41 +122,41 @@ for col in eccu_subnat_preds.columns:
         tot_min = np.min([np.min(np.array(merged[col])), np.min(np.array(merged['ln_income']))])
         tot_max = np.max([np.max(np.array(merged[col])), np.max(np.array(merged['ln_income']))])
         fig, ax = plt.subplots()
-        ax.scatter(np.array(merged['ln_income']), np.array(merged[col]))
+        _ = ax.scatter(np.array(merged['ln_income']), np.array(merged[col]))
         
         xmin = np.min(np.array(merged['ln_income']))
         p1, p0 = np.polyfit(np.array(merged['ln_income']), np.array(merged[col]), deg = 1)
         newp0 = p0 + xmin * p1
-        ax.axline(xy1 = (xmin, newp0), slope = p1, color = 'r', lw = 2)
+        _ = ax.axline(xy1 = (xmin, newp0), slope = p1, color = 'r', lw = 2)
         stat = (f"$r$ = {np.corrcoef(merged['ln_income'], merged[col])[0][1]:.2f}")
         bbox = dict(boxstyle = 'round', fc = 'blanchedalmond', alpha = 0.5)
-        ax.text(0.95, 0.07, stat, fontsize = 12, bbox = bbox, transform = ax.transAxes, horizontalalignment = 'right')
+        _ = ax.text(0.95, 0.07, stat, fontsize = 12, bbox = bbox, transform = ax.transAxes, horizontalalignment = 'right')
         
         ## add title
-        ax.set_xlabel('True Log Income')
+        _ = ax.set_xlabel('True Log Income')
         if col == 'y_preds_brb' or col == 'y_preds_brb_ed':
-            ax.set_ylabel('Predicted Log Income based on Barbados')
+            _ = ax.set_ylabel('Predicted Log Income based on Barbados')
         elif col == 'y_preds_lca' or col == 'y_preds_lca_settle':
-            ax.set_ylabel('Predicted Log Income based on St. Lucia')
+            _ = ax.set_ylabel('Predicted Log Income based on St. Lucia')
         
         if any(df.equals(y) for y in [brb_income]):
             if clean_col == 'brb':
-                ax.set_title('BRB District-Level Income Prediction Based on BRB MOSAIKS-Level')
+                _ = ax.set_title('BRB District-Level Income Prediction Based on BRB MOSAIKS-Level')
             elif clean_col == 'brb_ed':
-                ax.set_title('BRB District-Level Income Prediction Based on BRB EB-Level')
+                _ = ax.set_title('BRB District-Level Income Prediction Based on BRB EB-Level')
             elif clean_col == 'lca':
-                ax.set_title('BRB District-Level Income Prediction Based on LCA MOSAIKS-Level')
+                _ = ax.set_title('BRB District-Level Income Prediction Based on LCA MOSAIKS-Level')
             elif clean_col == 'lca_settle':
-                ax.set_title('BRB District-Level Income Prediction Based on LCA Settlement-Level')
+                _ = ax.set_title('BRB District-Level Income Prediction Based on LCA Settlement-Level')
         if any(df.equals(y) for y in [lca_income]):
             if clean_col == 'brb':
-                ax.set_title('LCA District-Level Income Prediction Based on BRB MOSAIKS-Level')
+                _ = ax.set_title('LCA District-Level Income Prediction Based on BRB MOSAIKS-Level')
             elif clean_col == 'brb_ed':
-                ax.set_title('LCA District-Level Income Prediction Based on BRB EB-Level')
+                _ = ax.set_title('LCA District-Level Income Prediction Based on BRB EB-Level')
             elif clean_col == 'lca':
-                ax.set_title('LCA District-Level Income Prediction Based on LCA MOSAIKS-Level')
+                _ = ax.set_title('LCA District-Level Income Prediction Based on LCA MOSAIKS-Level')
             elif clean_col == 'lca_settle':
-                ax.set_title('LCA District-Level Income Prediction Based on LCA Settlement-Level')
+                _ = ax.set_title('LCA District-Level Income Prediction Based on LCA Settlement-Level')
         
         ## output the graph
         if any(df.equals(y) for y in [brb_income]):

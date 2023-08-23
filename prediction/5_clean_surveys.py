@@ -69,8 +69,8 @@ bslc_income.loc[:, 'income_last_month'] = bslc_income[['q10_02a', 'q10_04a', 'q1
 bslc_income.loc[:, 'income_last_year']  = bslc_income[['q10_16', 'q10_17', 'q10_18', 'q10_19', 'q10_20', 'q10_21']].sum(axis = 1)
 
 ## compute annual income - since income will be standardized it doesn't matter if we choose annual vs monthly
-bslc_income.loc[:, 'income']  = (bslc_income['income_last_month'] * 12) + bslc_income['income_last_year']
-##bslc_income.loc[:, 'income'] = bslc_income[['q10_02a', 'q10_04a']].sum(axis = 1)
+##bslc_income.loc[:, 'income']  = (bslc_income['income_last_month'] * 12) + bslc_income['income_last_year']
+bslc_income.loc[:, 'income'] = bslc_income[['q10_02a', 'q10_04a']].sum(axis = 1)
 
 ## aggregate income and weight to household level
 bslc_hhincome = bslc_income[['hhid', 'income']].groupby('hhid').agg(sum)
