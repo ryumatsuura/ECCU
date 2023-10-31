@@ -2,13 +2,19 @@
 
 ## packages
 import io as b_io
-import geopandas as gpd
+##import geopandas as gpd
 import rasterio as rio
 import os, dill, rtree, zipfile, csv
-from mosaiks import transforms
-from mosaiks.utils.imports import *
+##from mosaiks import transforms
+##from mosaiks.utils.imports import *
 from sklearn.metrics import *
+from sklearn.preprocessing import StandardScaler
 from scipy.stats import truncnorm
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
 
 ## set bootstrap samples
 num_bootstrap = 25
@@ -41,25 +47,25 @@ def replace_false_with_true(group):
     return group
 
 # create folder if not exists
-if not os.path.exists(os.path.join(c.out_dir, 'simulations')):
-    os.makedirs(os.path.join(c.out_dir, 'simulations'))
+##if not os.path.exists(os.path.join(c.out_dir, 'simulations')):
+##    os.makedirs(os.path.join(c.out_dir, 'simulations'))
 
 #############################
 ## A) clean prediction data
 #############################
 
 ## load subnational and MOSAIKS level prediction values
-eccu_nat_preds = pd.read_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'eccu_nat_hdi_preds.pkl'))
-eccu_subnat_preds = pd.read_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'eccu_subnat_hdi_preds.pkl'))
-eccu_mosaiks_preds = pd.read_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'eccu_mosaiks_hdi_preds.pkl'))
-eccu_subnat_key = pd.read_pickle(os.path.join(c.data_dir, 'int', 'keys', 'eccu_subnat_mosaiks_key.pkl'))
+eccu_nat_preds = pd.read_pickle(os.path.join('/projects/p30902/ECCU', 'int', 'hdi', 'eccu_nat_hdi_preds.pkl'))
+eccu_subnat_preds = pd.read_pickle(os.path.join('/projects/p30902/ECCU', 'int', 'hdi', 'eccu_subnat_hdi_preds.pkl'))
+eccu_mosaiks_preds = pd.read_pickle(os.path.join('/projects/p30902/ECCU', 'int', 'hdi', 'eccu_mosaiks_hdi_preds.pkl'))
+eccu_subnat_key = pd.read_pickle(os.path.join('/projects/p30902/ECCU', 'int', 'keys', 'eccu_subnat_mosaiks_key.pkl'))
 
 ## load population data and append
 for x in ['nat', 'subnat', 'mosaiks']:
     globals()[f'eccu_{x}_pop'] = pd.DataFrame([])
-    for files in os.listdir(os.path.join(c.data_dir, 'int', 'population')):
+    for files in os.listdir(os.path.join('/projects/p30902/ECCU', 'int', 'population')):
         if files.endswith('_{}_population.pkl'.format(x)) and not files.startswith('global_'):
-            pop = pd.read_pickle(os.path.join(c.data_dir, 'int', 'population', files))
+            pop = pd.read_pickle(os.path.join('/projects/p30902/ECCU', 'int', 'population', files))
             ISO = files.replace('_{}_population.pkl'.format(x), '').upper()
             pop['Country'] = ISO
             globals()[f'eccu_{x}_pop'] = pd.concat([globals()[f'eccu_{x}_pop'], pop])
@@ -114,7 +120,7 @@ for task in tasks:
 ##########################################################
 ## B) implement policy simulation - geographic targeting
 ##########################################################
-
+'''
 ## B-1. Use absolute value
 
 ## Model 1: 
@@ -562,7 +568,7 @@ model4_errors = model4_errors.reset_index().set_index('Country')
 assert sorted(model3_errors.index.unique()) == sorted(model4_errors.index.unique())
 
 for task in tasks:
-    for country in np.unique(model1_errors.index):
+    for country in np.unique(model3_errors.index):
         
         plt.close()
         
@@ -576,13 +582,202 @@ for task in tasks:
         _ = plt.title(country)
         _ = plt.legend()
         plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_perc_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
+'''
+## B-3. simulate household-level variable
+
+## Model 5:
+### Program eligibility: Population whose MOSAIKS-level HDI/GNI/income index are below p are eligible for the program
+### Model assumption: MOSAIKS-level variable is 50% correlated with ground-truth data 
+### Those with MOSAIKS-level HDI/GNI/income index below p are eligible 
+
+merged_mosaiks.sort_values(by = ['GID_1'], inplace = True)
+
+## initialize a new dataframe
+model5_errors_b = pd.DataFrame([])
+
+for b in range(num_bootstrap):
+    for task in tasks:
+        
+        np.random.seed(1)
+        
+        ## create normally distributed variable
+        norm_var = np.random.normal(0, 1, len(merged_mosaiks))
+        
+        ## create MOSAIKS-level variable that is 50% correlated with ground-truth data - actual correlation is going to be lower because of clipping
+        merged_mosaiks['correlated_var'] = np.clip(np.sqrt(1 - 0.5 ** 2) * merged_mosaiks['{}_preds_subnat'.format(task)] + 0.5 * norm_var, min(merged_mosaiks['{}_preds_subnat'.format(task)]), max(merged_mosaiks['{}_preds_subnat'.format(task)]))
+        
+        ## determine range of values to explore
+        ps = globals()[f'{task}_ps']
+        
+        for p in ps:
+            
+            ## define ground-truth eligibility
+            merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= p
+            
+            ## define model eligibility
+            merged_mosaiks['model_eligible'] = merged_mosaiks['correlated_var'] <= p
+            
+            ## compute inclusion and exclusion errors
+            counts = merged_mosaiks.groupby('Country').apply(calc_counts, true_col = 'prog_eligible', model_col = 'model_eligible')
+            
+            ## compute inclusion error
+            counts['inc_err'] = counts['FP'] / (counts['TN'] + counts['FP'])
+            counts['inc_err'] = counts['inc_err'].fillna(1)
+            
+            ## compute exclusion error
+            counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
+            counts['exc_err'] = counts['exc_err'].fillna(1)
+            
+            ## add task and p-th threshold 
+            counts['task'] = task
+            counts['p_threshold'] = p
+            counts['bootstrap'] = b
+            
+            ## concatenate to dataframe
+            model5_errors_b = pd.concat([model5_errors_b, counts[['inc_err', 'exc_err', 'task', 'p_threshold', 'bootstrap']]])
+            
+            ## remove recurring columns
+            merged_mosaiks = merged_mosaiks.drop(columns = ['prog_eligible', 'model_eligible'])
+        
+        ## remove recurring columns
+        merged_mosaiks = merged_mosaiks.drop(columns = ['correlated_var'])
+    
+    if (b + 1) % 5 == 0:
+        print(f'{b + 1} iterations completed')
+
+model5_errors_b = model5_errors_b.reset_index()
+
+## compute mean and confidence interval
+inc_err_means = model5_errors_b.groupby(['Country', 'task', 'p_threshold'])['inc_err'].mean().to_frame()
+inc_err_cis = model5_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'inc_err', p = [2.5, 97.5]).to_frame()
+inc_err_cis.columns = ['inc_err_ci']
+exc_err_means = model5_errors_b.groupby(['Country', 'task', 'p_threshold'])['exc_err'].mean().to_frame()
+exc_err_cis = model5_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'exc_err', p = [2.5, 97.5]).to_frame()
+exc_err_cis.columns = ['exc_err_ci']
+
+## merge 
+model5_errors = inc_err_means.merge(inc_err_cis, left_index = True, right_index = True).merge(exc_err_means, left_index = True, right_index = True).merge(exc_err_cis, left_index = True, right_index = True)
+model5_errors = model5_errors.reset_index().set_index('Country')
+
+## Model 6:
+### Program eligibility: Population whose MOSAIKS-level HDI/GNI/income index are below p are eligible for the program
+### Model assumption: MOSAIKS-level variable is 50% correlated with ground-truth data 
+### Those with weighted average of MOSAIKS-level HDI/GNI/income index and modeled HDI/GNI/income index below p are eligible 
+
+merged_mosaiks.sort_values(by = ['GID_1'], inplace = True)
+
+## initialize a new dataframe
+model6_errors_b = pd.DataFrame([])
+
+for b in range(num_bootstrap):
+    for task in tasks:
+        
+        np.random.seed(1)
+        
+        ## create log-normal distribution for each parish
+        samples = merged_subnat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
+        samples.columns = ['GID_1', 'lognormal_dist']
+        
+        ## convert parish-level data to MOSAIKS-level data
+        samples_df = pd.DataFrame([])
+        _, idx = np.unique(merged_mosaiks.GID_1, return_index = True)
+        for i, parish in enumerate(merged_mosaiks.GID_1[np.sort(idx)]):
+            samples_df = pd.concat([samples_df, pd.DataFrame({'Parish': np.full(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0].shape[0], parish), 'lognormal_dist': np.hstack(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0])})])
+        
+        ## standardize the lognormally distributed variable
+        scaler = StandardScaler()
+        samples_df['standardized_dist'] = scaler.fit_transform(samples_df[['lognormal_dist']])
+        
+        ## create normally distributed variable
+        norm_var = np.random.normal(0, 1, len(merged_mosaiks))
+        
+        ## create MOSAIKS-level variable that is 50% correlated with ground-truth data - actual correlation is going to be lower because of clipping
+        merged_mosaiks['correlated_var'] = np.clip(np.sqrt(1 - 0.5 ** 2) * merged_mosaiks['{}_preds_subnat'.format(task)] + 0.5 * norm_var, min(merged_mosaiks['{}_preds_subnat'.format(task)]), max(merged_mosaiks['{}_preds_subnat'.format(task)]))
+        
+        ## horizontally concatenate MOSAIKS-level data
+        samples_df = samples_df.set_index(merged_mosaiks.index)
+        merged_mosaiks = pd.concat([merged_mosaiks, samples_df], axis = 1)
+        assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
+        
+        ## determine range of values to explore
+        ps = globals()[f'{task}_ps']
+        
+        for p in ps:
+            
+            ## define ground-truth eligibility
+            merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= p
+            
+            ## define model eligibility
+            merged_mosaiks['model_eligible'] = (0.5 * merged_mosaiks['standardized_dist'] + 0.5 * merged_mosaiks['correlated_var']) <= p
+            
+            ## compute inclusion and exclusion errors
+            counts = merged_mosaiks.groupby('Country').apply(calc_counts, true_col = 'prog_eligible', model_col = 'model_eligible')
+            
+            ## compute inclusion error
+            counts['inc_err'] = counts['FP'] / (counts['TN'] + counts['FP'])
+            counts['inc_err'] = counts['inc_err'].fillna(1)
+            
+            ## compute exclusion error
+            counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
+            counts['exc_err'] = counts['exc_err'].fillna(1)
+            
+            ## add task and p-th threshold 
+            counts['task'] = task
+            counts['p_threshold'] = p
+            counts['bootstrap'] = b
+            
+            ## concatenate to dataframe
+            model6_errors_b = pd.concat([model6_errors_b, counts[['inc_err', 'exc_err', 'task', 'p_threshold', 'bootstrap']]])
+            
+            ## remove recurring columns
+            merged_mosaiks = merged_mosaiks.drop(columns = ['prog_eligible', 'model_eligible'])
+        
+        ## remove recurring columns
+        merged_mosaiks = merged_mosaiks.drop(columns = ['Parish', 'lognormal_dist', 'standardized_dist', 'correlated_var'])
+    
+    if (b + 1) % 5 == 0:
+        print(f'{b + 1} iterations completed')
+
+model6_errors_b = model6_errors_b.reset_index()
+
+## compute mean and confidence interval
+inc_err_means = model6_errors_b.groupby(['Country', 'task', 'p_threshold'])['inc_err'].mean().to_frame()
+inc_err_cis = model6_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'inc_err', p = [2.5, 97.5]).to_frame()
+inc_err_cis.columns = ['inc_err_ci']
+exc_err_means = model6_errors_b.groupby(['Country', 'task', 'p_threshold'])['exc_err'].mean().to_frame()
+exc_err_cis = model6_errors_b.groupby(['Country', 'task', 'p_threshold']).apply(calc_percentile, val_col = 'exc_err', p = [2.5, 97.5]).to_frame()
+exc_err_cis.columns = ['exc_err_ci']
+
+## merge 
+model6_errors = inc_err_means.merge(inc_err_cis, left_index = True, right_index = True).merge(exc_err_means, left_index = True, right_index = True).merge(exc_err_cis, left_index = True, right_index = True)
+model6_errors = model6_errors.reset_index().set_index('Country')
+
+## Draw Models 5 and 6
+
+assert sorted(model5_errors.index.unique()) == sorted(model6_errors.index.unique())
+
+for task in tasks:
+    for country in np.unique(model5_errors.index):
+        
+        plt.close()
+        
+        ## draw inclusino and exclusion errors from models 
+        _ = plt.plot(model5_errors[(model5_errors.index == country) & (model5_errors.task == task)].inc_err, model5_errors[(model5_errors.index == country) & (model5_errors.task == task)].exc_err, label = 'Model 5')
+        _ = plt.plot(model6_errors[(model6_errors.index == country) & (model6_errors.task == task)].inc_err, model6_errors[(model6_errors.index == country) & (model6_errors.task == task)].exc_err, label = 'Model 6')
+        
+        ## label the graph
+        _ = plt.xlabel('Inclusion error')
+        _ = plt.ylabel('Exclusion error')
+        _ = plt.title(country)
+        _ = plt.legend()
+        plt.savefig(os.path.join('/projects/p30902/ECCU/output', 'simulations', '{}_{}_cat_abs_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
 
 ########################################################################
 ## C) implement poilcy simulation - categorical + geographic targeting
 ########################################################################
 
 ## C-1. Use only categorical value
-
+'''
 ## Model 5: 
 ### Program eligibility: Households without income
 ### Model assumption: Households without 
@@ -614,3 +809,4 @@ counts['inc_err'] = counts['FP'] / (counts['TN'] + counts['FP'])
 ## compute exclusion error
 counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
 ##counts['exc_err'] = counts['exc_err'].fillna(0)
+'''
