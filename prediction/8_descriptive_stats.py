@@ -69,18 +69,27 @@ with open(fn, 'w', encoding = 'UTF8', newline = '') as f:
 ## A-2. correlate population and income
 
 brb_income = pd.read_pickle(os.path.join(c.data_dir, 'int', 'income', 'brb_parish_income.pkl'))
+grd_income = pd.read_excel(os.path.join(c.data_dir, 'int', 'income', 'Grenada SumStat.xlsx'), sheet_name = 'Parish')
 lca_2010_income = pd.read_pickle(os.path.join(c.data_dir, 'int', 'income', 'lca_district_income.pkl'))
 lca_2016_income = pd.read_pickle(os.path.join(c.data_dir, 'int', 'income', 'lca_district_median_income.pkl'))
 brb_pop = pd.read_pickle(os.path.join(c.data_dir, 'int', 'population', 'brb_subnat_population.pkl'))
+grd_pop = pd.read_pickle(os.path.join(c.data_dir, 'int', 'population', 'grd_subnat_population.pkl'))
 lca_pop = pd.read_pickle(os.path.join(c.data_dir, 'int', 'population', 'lca_subnat_population.pkl'))
+
+## load grenada shapefile to match parish id with name
+grd_shp = gpd.read_file(os.path.join(c.data_dir, 'raw', 'shp', 'gadm41_GRD_shp', 'gadm41_GRD_1.shp'))
+grd_income = pd.merge(grd_income, grd_shp[['GID_1', 'NAME_1']], left_on = 'Parish name', right_on = 'NAME_1')
+grd_income.set_index('GID_1', inplace = True)
+grd_income = grd_income.rename(columns = {'Mean': 'ln_income', 'Linearized std. err.': 'se', '95% CI lower bound': 'lb', '95% CI upper bound': 'ub'})
 
 ## merge income and population data
 brb_merge = pd.merge(brb_income, brb_pop, left_index = True, right_index = True)
+grd_merge = pd.merge(grd_income, grd_pop, left_index = True, right_index = True)
 lca_2010_merge = pd.merge(lca_2010_income, lca_pop, left_index = True, right_index = True)
 lca_2016_merge = pd.merge(lca_2016_income, lca_pop, left_index = True, right_index = True)
 
 ## plot income against population
-for df in (brb_merge, lca_2010_merge, lca_2016_merge):
+for df in (brb_merge, grd_merge, lca_2010_merge, lca_2016_merge):
     plt.close()
     fig, ax = plt.subplots()
     _ = ax.scatter(np.array(df['ln_pop_density']), np.array(df['ln_income']))
@@ -93,6 +102,8 @@ for df in (brb_merge, lca_2010_merge, lca_2016_merge):
     if any(df.equals(y) for y in [brb_merge]):
         _ = ax.set_title('BRB District-Level Income and Population Correlations')
     elif any(df.equals(y) for y in [lca_2010_merge]):
+        _ = ax.set_title('GRD Parish-Level Income and Population Correlations')
+    elif any(df.equals(y) for y in [lca_2010_merge]):
         _ = ax.set_title('LCA District-Level Census Income and Population Correlations')
     elif any(df.equals(y) for y in [lca_2016_merge]):
         _ = ax.set_title('LCA District-Level Survey Income and Population Correlations')
@@ -101,6 +112,8 @@ for df in (brb_merge, lca_2010_merge, lca_2016_merge):
     _ = ax.text(0.95, 0.07, stat, fontsize = 12, bbox = bbox, transform = ax.transAxes, horizontalalignment = 'right')
     if any(df.equals(y) for y in [brb_merge]):
         fig.savefig(os.path.join(c.out_dir, 'income', 'brb_income_population_correlates.png'), bbox_inches = 'tight', pad_inches = 0.1)
+    elif any(df.equals(y) for y in [grd_merge]):
+        fig.savefig(os.path.join(c.out_dir, 'income', 'grd_income_population_correlates.png'), bbox_inches = 'tight', pad_inches = 0.1)
     elif any(df.equals(y) for y in [lca_2010_merge]):
         fig.savefig(os.path.join(c.out_dir, 'income', 'lca_income_population_correlates.png'), bbox_inches = 'tight', pad_inches = 0.1)
     elif any(df.equals(y) for y in [lca_2016_merge]):
@@ -112,6 +125,7 @@ eccu_hdi = pd.read_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'eccu_subnat_hd
 
 ## merge income and predicted HDI data
 brb_merge = pd.merge(brb_income, eccu_hdi, left_index = True, right_index = True)
+grd_merge = pd.merge(grd_income, eccu_hdi, left_index = True, right_index = True)
 lca_2010_merge = pd.merge(lca_2010_income, eccu_hdi, left_index = True, right_index = True)
 lca_2016_merge = pd.merge(lca_2016_income, eccu_hdi, left_index = True, right_index = True)
 
@@ -141,6 +155,13 @@ for task in tasks:
                 _ = ax.set_title('BRB District-Level Predicted {} Index and Income Correlations'.format(task.capitalize()))
             elif task == 'ed':
                 _ = ax.set_title('BRB District-Level Predicted Education Index and Income Correlations')
+        elif any(df.equals(y) for y in [grd_merge]):
+            if task == 'hdi' or task == 'gni' or task == 'iwi':
+                _ = ax.set_title('GRD District-Level Predicted {} and Income Correlations'.format(task.upper()))
+            elif task == 'health' or task == 'income':
+                _ = ax.set_title('GRD District-Level Predicted {} Index and Income Correlations'.format(task.capitalize()))
+            elif task == 'ed':
+                _ = ax.set_title('GRD District-Level Predicted Education Index and Income Correlations')
         elif any(df.equals(y) for y in [lca_2010_merge]):
             if task == 'hdi' or task == 'gni' or task == 'iwi':
                 _ = ax.set_title('LCA District-Level Predicted {} and Census Income Correlations'.format(task.upper()))
@@ -160,6 +181,8 @@ for task in tasks:
         _ = ax.text(0.95, 0.07, stat, fontsize = 12, bbox = bbox, transform = ax.transAxes, horizontalalignment = 'right')
         if any(df.equals(y) for y in [brb_merge]):
             fig.savefig(os.path.join(c.out_dir, 'hdi', 'brb_{}_income_correlates.png'.format(task)), bbox_inches = 'tight', pad_inches = 0.1)
+        elif any(df.equals(y) for y in [grd_merge]):
+            fig.savefig(os.path.join(c.out_dir, 'hdi', 'grd_{}_income_correlates.png'.format(task)), bbox_inches = 'tight', pad_inches = 0.1)
         elif any(df.equals(y) for y in [lca_2010_merge]):
             fig.savefig(os.path.join(c.out_dir, 'hdi', 'lca_{}_income_correlates.png'.format(task)), bbox_inches = 'tight', pad_inches = 0.1)
         elif any(df.equals(y) for y in [lca_2016_merge]):

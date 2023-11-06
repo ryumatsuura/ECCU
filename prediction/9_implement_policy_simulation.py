@@ -2,25 +2,19 @@
 
 ## packages
 import io as b_io
-##import geopandas as gpd
+import geopandas as gpd
 import rasterio as rio
 import os, dill, rtree, zipfile, csv
-##from mosaiks import transforms
-##from mosaiks.utils.imports import *
+from mosaiks import transforms
+from mosaiks.utils.imports import *
 from sklearn.metrics import *
-from sklearn.preprocessing import StandardScaler
 from scipy.stats import truncnorm
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-
-
 ## set bootstrap samples
-num_bootstrap = 25
+num_bootstrap = 100
 
 ## specify outcome variables - use three different measures for income/wealth
-tasks = ['hdi', 'gni', 'income']
+tasks = ['hdi', 'income']
 
 def generate_truncated_normal(lb, ub, mean, std, size):
     samples_log = truncnorm.rvs((np.log(lb)- np.log(mean)) / std, (np.log(ub) - np.log(mean)) / std, loc = np.log(mean), scale = std, size = size)
@@ -47,25 +41,25 @@ def replace_false_with_true(group):
     return group
 
 # create folder if not exists
-##if not os.path.exists(os.path.join(c.out_dir, 'simulations')):
-##    os.makedirs(os.path.join(c.out_dir, 'simulations'))
+if not os.path.exists(os.path.join(c.out_dir, 'simulations')):
+    os.makedirs(os.path.join(c.out_dir, 'simulations'))
 
 #############################
 ## A) clean prediction data
 #############################
 
 ## load subnational and MOSAIKS level prediction values
-eccu_nat_preds = pd.read_pickle(os.path.join('/projects/p30902/ECCU', 'int', 'hdi', 'eccu_nat_hdi_preds.pkl'))
-eccu_subnat_preds = pd.read_pickle(os.path.join('/projects/p30902/ECCU', 'int', 'hdi', 'eccu_subnat_hdi_preds.pkl'))
-eccu_mosaiks_preds = pd.read_pickle(os.path.join('/projects/p30902/ECCU', 'int', 'hdi', 'eccu_mosaiks_hdi_preds.pkl'))
-eccu_subnat_key = pd.read_pickle(os.path.join('/projects/p30902/ECCU', 'int', 'keys', 'eccu_subnat_mosaiks_key.pkl'))
+eccu_nat_preds = pd.read_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'eccu_nat_hdi_preds.pkl'))
+eccu_subnat_preds = pd.read_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'eccu_subnat_hdi_preds.pkl'))
+eccu_mosaiks_preds = pd.read_pickle(os.path.join(c.data_dir, 'int', 'hdi', 'eccu_mosaiks_hdi_preds.pkl'))
+eccu_subnat_key = pd.read_pickle(os.path.join(c.data_dir, 'int', 'keys', 'eccu_subnat_mosaiks_key.pkl'))
 
 ## load population data and append
 for x in ['nat', 'subnat', 'mosaiks']:
     globals()[f'eccu_{x}_pop'] = pd.DataFrame([])
-    for files in os.listdir(os.path.join('/projects/p30902/ECCU', 'int', 'population')):
+    for files in os.listdir(os.path.join(c.data_dir, 'int', 'population')):
         if files.endswith('_{}_population.pkl'.format(x)) and not files.startswith('global_'):
-            pop = pd.read_pickle(os.path.join('/projects/p30902/ECCU', 'int', 'population', files))
+            pop = pd.read_pickle(os.path.join(c.data_dir, 'int', 'population', files))
             ISO = files.replace('_{}_population.pkl'.format(x), '').upper()
             pop['Country'] = ISO
             globals()[f'eccu_{x}_pop'] = pd.concat([globals()[f'eccu_{x}_pop'], pop])
@@ -120,7 +114,7 @@ for task in tasks:
 ##########################################################
 ## B) implement policy simulation - geographic targeting
 ##########################################################
-'''
+
 ## B-1. Use absolute value
 
 ## Model 1: 
@@ -129,14 +123,13 @@ for task in tasks:
 ### Those with HDI/GNI/income index below p are eligible
 
 merged_mosaiks.sort_values(by = ['GID_1'], inplace = True)
+np.random.seed(1)
 
 ## initialize a new dataframe
 model1_errors_b = pd.DataFrame([])
 
 for b in range(num_bootstrap):
     for task in tasks:
-        
-        np.random.seed(1)
         
         ## create log-normal distribution for each parish
         samples = merged_nat_exp.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
@@ -231,14 +224,13 @@ model1_errors = model1_errors.reset_index().set_index('Country')
 ### Those with HDI/GNI/income index below p are eligible 
 
 merged_mosaiks.sort_values(by = ['GID_1'], inplace = True)
+np.random.seed(1)
 
 ## initialize a new dataframe
 model2_errors_b = pd.DataFrame([])
 
 for b in range(num_bootstrap):
     for task in tasks:
-        
-        np.random.seed(1)
         
         ## create log-normal distribution for each parish
         samples = merged_subnat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
@@ -359,14 +351,13 @@ ps = np.linspace(0, 100, 1000)
 ### Those in the lowest p percentile in each parish are eligible 
 
 merged_mosaiks.sort_values(by = ['GID_1'], inplace = True)
+np.random.seed(1)
 
 ## initialize a new dataframe
 model3_errors_b = pd.DataFrame([])
 
 for b in range(num_bootstrap):
     for task in tasks:
-        
-        np.random.seed(1)
         
         ## create log-normal distribution for each parish
         samples = merged_subnat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
@@ -464,14 +455,13 @@ model3_errors = model3_errors.reset_index().set_index('Country')
 ### where p_p is determined so that the aggregated eligible population from all parishes add up to the population in the lowest p percentile in the country
 
 merged_mosaiks.sort_values(by = ['GID_1'], inplace = True)
+np.random.seed(1)
 
 ## initialize a new dataframe
 model4_errors_b = pd.DataFrame([])
 
 for b in range(num_bootstrap):
     for task in tasks:
-        
-        np.random.seed(1)
         
         ## create log-normal distribution for each parish
         samples = merged_subnat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
@@ -488,7 +478,7 @@ for b in range(num_bootstrap):
         merged_mosaiks = pd.concat([merged_mosaiks, samples_df], axis = 1)
         assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
         
-        ## plot distribution - THIS IS WRONG = NEED TO DRAW SEPARATE P
+        ## plot distribution
         if b == 0:
             samples['Country'] = samples['GID_1'].str[:3]
             for country in np.unique(samples.Country):
@@ -582,40 +572,53 @@ for task in tasks:
         _ = plt.title(country)
         _ = plt.legend()
         plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_perc_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
-'''
+
 ## B-3. simulate household-level variable
+
+## set different threshold
+ps = np.linspace(0, 100, 1000)
 
 ## Model 5:
 ### Program eligibility: Population whose MOSAIKS-level HDI/GNI/income index are below p are eligible for the program
-### Model assumption: MOSAIKS-level variable is 50% correlated with ground-truth data 
-### Those with MOSAIKS-level HDI/GNI/income index below p are eligible 
+### Model assumption: MOSAIKS-level variable is 25% correlated with ground-truth data 
+### Those with MOSAIKS-level HDI/income index in the lowest p percentile in each country are eligible
 
 merged_mosaiks.sort_values(by = ['GID_1'], inplace = True)
+np.random.seed(1)
 
 ## initialize a new dataframe
 model5_errors_b = pd.DataFrame([])
 
 for b in range(num_bootstrap):
-    for task in tasks:
+    for task in tasks:        
         
-        np.random.seed(1)
+        ## create uniformly distributed variable in each country
+        countries = pd.unique(merged_mosaiks.Country)
+        for c in countries:
+            merged_mosaiks.loc[merged_mosaiks['Country'] == c, 'uniform_var'] = np.random.uniform(0, 1, len(merged_mosaiks.loc[merged_mosaiks['Country'] == c]))
         
-        ## create normally distributed variable
-        norm_var = np.random.normal(0, 1, len(merged_mosaiks))
-        
-        ## create MOSAIKS-level variable that is 50% correlated with ground-truth data - actual correlation is going to be lower because of clipping
-        merged_mosaiks['correlated_var'] = np.clip(np.sqrt(1 - 0.5 ** 2) * merged_mosaiks['{}_preds_subnat'.format(task)] + 0.5 * norm_var, min(merged_mosaiks['{}_preds_subnat'.format(task)]), max(merged_mosaiks['{}_preds_subnat'.format(task)]))
-        
-        ## determine range of values to explore
-        ps = globals()[f'{task}_ps']
+        ## create MOSAIKS-level variable that is 50% correlated with ground-truth data
+        merged_mosaiks['correlated_var'] = np.clip(np.sqrt(1 - 0.5 ** 2) * merged_mosaiks['uniform_var'] + 0.5 * merged_mosaiks['{}_preds_subnat'.format(task)], 0, 1)
         
         for p in ps:
             
-            ## define ground-truth eligibility
-            merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= p
+            ## define ground-truth eligibilty
+            perc_nat = merged_mosaiks.groupby('Country').apply(calc_percentile, val_col = '{}_preds_subnat'.format(task), p = p).to_frame()
+            perc_nat.columns = ['percentile']
+            merged_mosaiks = merged_mosaiks.merge(perc_nat, left_on = 'Country', right_index = True)
+            if p < ps[500]:
+                merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] < merged_mosaiks['percentile']
+            elif p >= ps[500]:
+                merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= merged_mosaiks['percentile']
             
             ## define model eligibility
-            merged_mosaiks['model_eligible'] = merged_mosaiks['correlated_var'] <= p
+            model_perc_subnat = merged_mosaiks.groupby('Country').apply(calc_percentile, val_col = 'correlated_var', p = p).to_frame()
+            model_perc_subnat.columns = ['model_percentile']
+            merged_mosaiks = merged_mosaiks.merge(model_perc_subnat, left_on = 'Country', right_index = True)
+            if p < ps[500]:
+                merged_mosaiks['model_eligible'] = merged_mosaiks['correlated_var'] < merged_mosaiks['model_percentile']
+            elif p >= ps[500]:
+                merged_mosaiks['model_eligible'] = merged_mosaiks['correlated_var'] <= merged_mosaiks['model_percentile']
             
             ## compute inclusion and exclusion errors
             counts = merged_mosaiks.groupby('Country').apply(calc_counts, true_col = 'prog_eligible', model_col = 'model_eligible')
@@ -637,7 +640,7 @@ for b in range(num_bootstrap):
             model5_errors_b = pd.concat([model5_errors_b, counts[['inc_err', 'exc_err', 'task', 'p_threshold', 'bootstrap']]])
             
             ## remove recurring columns
-            merged_mosaiks = merged_mosaiks.drop(columns = ['prog_eligible', 'model_eligible'])
+            merged_mosaiks = merged_mosaiks.drop(columns = ['percentile', 'prog_eligible', 'model_percentile', 'model_eligible'])
         
         ## remove recurring columns
         merged_mosaiks = merged_mosaiks.drop(columns = ['correlated_var'])
@@ -661,10 +664,11 @@ model5_errors = model5_errors.reset_index().set_index('Country')
 
 ## Model 6:
 ### Program eligibility: Population whose MOSAIKS-level HDI/GNI/income index are below p are eligible for the program
-### Model assumption: MOSAIKS-level variable is 50% correlated with ground-truth data 
-### Those with weighted average of MOSAIKS-level HDI/GNI/income index and modeled HDI/GNI/income index below p are eligible 
+### Model assumption: MOSAIKS-level variable is 25% correlated with ground-truth data 
+### Those with weighted average of MOSAIKS-level HDI/income index and modeled HDI/income index in the lowest p percentile in each country are eligible
 
 merged_mosaiks.sort_values(by = ['GID_1'], inplace = True)
+np.random.seed(1)
 
 ## initialize a new dataframe
 model6_errors_b = pd.DataFrame([])
@@ -672,43 +676,39 @@ model6_errors_b = pd.DataFrame([])
 for b in range(num_bootstrap):
     for task in tasks:
         
-        np.random.seed(1)
+        ## create uniformly distributed variable in each country
+        countries = pd.unique(merged_mosaiks.Country)
+        for c in countries:
+            merged_mosaiks.loc[merged_mosaiks['Country'] == c, 'uniform_var'] = np.random.uniform(0, 1, len(merged_mosaiks.loc[merged_mosaiks['Country'] == c]))
         
-        ## create log-normal distribution for each parish
-        samples = merged_subnat.apply(lambda x: generate_truncated_normal(x['{}_preds_subnat_min'.format(task)], x['{}_preds_subnat_max'.format(task)], x['{}_preds_subnat'.format(task)], x['{}_preds_subnat_std'.format(task)], x['counts']), axis = 1).to_frame().reset_index()
-        samples.columns = ['GID_1', 'lognormal_dist']
+        ## create MOSAIKS-level variable that is 50% correlated with ground-truth data
+        merged_mosaiks['correlated_var'] = np.clip(np.sqrt(1 - 0.5 ** 2) * merged_mosaiks['uniform_var'] + 0.5 * merged_mosaiks['{}_preds_subnat'.format(task)], 0, 1)
         
-        ## convert parish-level data to MOSAIKS-level data
-        samples_df = pd.DataFrame([])
-        _, idx = np.unique(merged_mosaiks.GID_1, return_index = True)
-        for i, parish in enumerate(merged_mosaiks.GID_1[np.sort(idx)]):
-            samples_df = pd.concat([samples_df, pd.DataFrame({'Parish': np.full(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0].shape[0], parish), 'lognormal_dist': np.hstack(samples[samples['GID_1'] == parish]['lognormal_dist'].values[0])})])
+        ## merge in predicted values at the district/parsih-level
+        merged_mosaiks = pd.merge(merged_mosaiks, merged_subnat['{}_preds_subnat'.format(task)].rename('{}_preds_subnat_subnat'.format(task)), left_on = 'GID_1', right_index = True)
         
-        ## standardize the lognormally distributed variable
-        scaler = StandardScaler()
-        samples_df['standardized_dist'] = scaler.fit_transform(samples_df[['lognormal_dist']])
-        
-        ## create normally distributed variable
-        norm_var = np.random.normal(0, 1, len(merged_mosaiks))
-        
-        ## create MOSAIKS-level variable that is 50% correlated with ground-truth data - actual correlation is going to be lower because of clipping
-        merged_mosaiks['correlated_var'] = np.clip(np.sqrt(1 - 0.5 ** 2) * merged_mosaiks['{}_preds_subnat'.format(task)] + 0.5 * norm_var, min(merged_mosaiks['{}_preds_subnat'.format(task)]), max(merged_mosaiks['{}_preds_subnat'.format(task)]))
-        
-        ## horizontally concatenate MOSAIKS-level data
-        samples_df = samples_df.set_index(merged_mosaiks.index)
-        merged_mosaiks = pd.concat([merged_mosaiks, samples_df], axis = 1)
-        assert (merged_mosaiks['GID_1'] == merged_mosaiks['Parish']).all()
-        
-        ## determine range of values to explore
-        ps = globals()[f'{task}_ps']
+        ## compute the weighted sum
+        merged_mosaiks['weighted_sum'] = 0.5 * merged_mosaiks['{}_preds_subnat_subnat'.format(task)] + 0.5 * merged_mosaiks['correlated_var']
         
         for p in ps:
             
-            ## define ground-truth eligibility
-            merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= p
+            ## define ground-truth eligibilty
+            perc_nat = merged_mosaiks.groupby('Country').apply(calc_percentile, val_col = '{}_preds_subnat'.format(task), p = p).to_frame()
+            perc_nat.columns = ['percentile']
+            merged_mosaiks = merged_mosaiks.merge(perc_nat, left_on = 'Country', right_index = True)
+            if p < ps[500]:
+                merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] < merged_mosaiks['percentile']
+            elif p >= ps[500]:
+                merged_mosaiks['prog_eligible'] = merged_mosaiks['{}_preds_subnat'.format(task)] <= merged_mosaiks['percentile']
             
             ## define model eligibility
-            merged_mosaiks['model_eligible'] = (0.5 * merged_mosaiks['standardized_dist'] + 0.5 * merged_mosaiks['correlated_var']) <= p
+            model_perc_subnat = merged_mosaiks.groupby('Country').apply(calc_percentile, val_col = 'weighted_sum', p = p).to_frame()
+            model_perc_subnat.columns = ['model_percentile']
+            merged_mosaiks = merged_mosaiks.merge(model_perc_subnat, left_on = 'Country', right_index = True)
+            if p < ps[500]:
+                merged_mosaiks['model_eligible'] = merged_mosaiks['weighted_sum'] < merged_mosaiks['model_percentile']
+            elif p >= ps[500]:
+                merged_mosaiks['model_eligible'] = merged_mosaiks['weighted_sum'] <= merged_mosaiks['model_percentile']
             
             ## compute inclusion and exclusion errors
             counts = merged_mosaiks.groupby('Country').apply(calc_counts, true_col = 'prog_eligible', model_col = 'model_eligible')
@@ -730,10 +730,10 @@ for b in range(num_bootstrap):
             model6_errors_b = pd.concat([model6_errors_b, counts[['inc_err', 'exc_err', 'task', 'p_threshold', 'bootstrap']]])
             
             ## remove recurring columns
-            merged_mosaiks = merged_mosaiks.drop(columns = ['prog_eligible', 'model_eligible'])
+            merged_mosaiks = merged_mosaiks.drop(columns = ['percentile', 'prog_eligible', 'model_percentile', 'model_eligible'])
         
         ## remove recurring columns
-        merged_mosaiks = merged_mosaiks.drop(columns = ['Parish', 'lognormal_dist', 'standardized_dist', 'correlated_var'])
+        merged_mosaiks = merged_mosaiks.drop(columns = ['correlated_var', '{}_preds_subnat_subnat'.format(task), 'weighted_sum'])
     
     if (b + 1) % 5 == 0:
         print(f'{b + 1} iterations completed')
@@ -770,43 +770,5 @@ for task in tasks:
         _ = plt.ylabel('Exclusion error')
         _ = plt.title(country)
         _ = plt.legend()
-        plt.savefig(os.path.join('/projects/p30902/ECCU/output', 'simulations', '{}_{}_cat_abs_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
+        plt.savefig(os.path.join(c.out_dir, 'simulations', '{}_{}_hybrid_eic.png'.format(country.lower(), task)), bbox_inches = 'tight', pad_inches = 0.1)
 
-########################################################################
-## C) implement poilcy simulation - categorical + geographic targeting
-########################################################################
-
-## C-1. Use only categorical value
-'''
-## Model 5: 
-### Program eligibility: Households without income
-### Model assumption: Households without 
-
-## load LCA data
-lfs_2016 = pd.read_stata(os.path.join(c.data_dir, 'raw', 'surveys', 'Saint Lucia Census and Labor Survey', 'LFS', 'LCA_2016.dta'))
-
-## create indicator for no income and compute how many people in each household have zero income
-lfs_2016['no_income'] = (lfs_2016['income'] == 0)
-lfs_2016 = lfs_2016.merge(lfs_2016.groupby(['district', 'ed', 'hhno', 'yr', 'mth'])['no_income'].sum().to_frame().rename(columns = {'no_income': 'hh_no_income'}), left_on = ['district', 'ed', 'hhno', 'yr', 'mth'], right_index = True)
-
-## indicate which households have zero total income
-lfs_2016['zero_income'] = lfs_2016['hh_no_income'] == lfs_2016['persons']
-
-## indicate which households have unemployed head
-lfs_2016['unemployed_head'] = (lfs_2016['p2'] == 'Head') & (lfs_2016['unemp'] == 'Unemployed') 
-lfs_2016['unemployed_head'] = lfs_2016.groupby(['district', 'ed', 'hhno', 'yr', 'mth'])['unemployed_head'].transform(replace_false_with_true)
-
-## keep households level variables and collapse down to HH level
-lfs_hh_2016 = lfs_2016[['district', 'ed', 'hhno', 'yr', 'mth', 'zero_income', 'unemployed_head']].drop_duplicates()
-
-## compute inclusion and exclusion errors
-counts = calc_counts(lfs_hh_2016, true_col = 'zero_income', model_col = 'unemployed_head')
-
-## compute inclusion error
-counts['inc_err'] = counts['FP'] / (counts['TN'] + counts['FP'])
-##counts['inc_err'] = counts['inc_err'].fillna(1)
-            
-## compute exclusion error
-counts['exc_err'] = counts['FN'] / (counts['TP'] + counts['FN'])
-##counts['exc_err'] = counts['exc_err'].fillna(0)
-'''
